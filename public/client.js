@@ -3,6 +3,7 @@ let myPlayerId = null;
 let currentRoomState = null;
 let rouletteInterval = null;
 let jobRouletteInterval = null;
+let turnToastTimeout = null;
 
 function showScreen(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -57,6 +58,7 @@ document.getElementById('btn-leave-room').onclick = () => {
 
 document.getElementById('btn-ready').onclick = () => socket.emit('toggleReady');
 document.getElementById('time-limit-select').onchange = (e) => socket.emit('changeTimeLimit', Number(e.target.value));
+document.getElementById('quiz-difficulty-select').onchange = (e) => socket.emit('changeQuizDifficulty', e.target.value);
 document.getElementById('btn-shuffle').onclick = () => socket.emit('shufflePlayers');
 document.getElementById('btn-start-game').onclick = () => socket.emit('startGame', { force: false });
 document.getElementById('btn-force-start').onclick = () => socket.emit('startGame', { force: true });
@@ -70,6 +72,9 @@ socket.on('roomStateUpdate', (state) => {
     showScreen('waiting-screen');
     document.getElementById('time-limit-select').value = state.timeLimit;
     document.getElementById('time-limit-select').disabled = !me.isHost;
+
+    document.getElementById('quiz-difficulty-select').value = state.quizDifficulty || 'NORMAL';
+    document.getElementById('quiz-difficulty-select').disabled = !me.isHost;
 
     if (me.isHost) {
       document.getElementById('btn-shuffle').classList.remove('hidden');
@@ -94,7 +99,7 @@ socket.on('roomStateUpdate', (state) => {
       const li = document.createElement('li');
       li.className = 'player-item';
       li.innerHTML = `
-        <span><i class="color-dot" style="background:${p.color}"></i>${idx + 1}. ${p.name} ${p.isHost ? '👑' : ''}</span>
+        <span><i class="color-dot" style="background:${p.color}"></i>${idx + 1}. ${escapeHtml(p.name)} ${p.isHost ? '👑' : ''}</span>
         <span class="badge-ready ${p.ready ? 'ok' : 'wait'}">${p.ready ? '準備OK' : '準備中'}</span>
       `;
       listEl.appendChild(li);
@@ -126,7 +131,7 @@ socket.on('startCountdown', (sec) => {
   }, 1000);
 });
 
-// 職業ルーレットフェーズ開始
+// 職業ルーレットフェーズ
 socket.on('startJobRoulettePhase', (jobNames) => {
   const modal = document.getElementById('job-roulette-modal');
   const slotEl = document.getElementById('job-roulette-slot');
@@ -137,10 +142,9 @@ socket.on('startJobRoulettePhase', (jobNames) => {
   stopBtn.disabled = false;
   stopBtn.textContent = 'ストップして職業決定！';
 
-  // 全員の決定状況リスト初期化
   statusList.innerHTML = currentRoomState.players.map(p => `
     <div class="job-status-item" id="job-stat-${p.id}">
-      <span><i class="color-dot" style="background:${p.color}"></i>${p.name}</span>
+      <span><i class="color-dot" style="background:${p.color}"></i>${escapeHtml(p.name)}</span>
       <span class="job-val">ルーレット回転中...</span>
     </div>
   `).join('');
@@ -175,7 +179,21 @@ socket.on('allJobsDecided', () => {
   document.getElementById('job-roulette-modal').classList.add('hidden');
 });
 
-// 結果バナー（2.2秒表示）
+// 「あなたの番です！」通知
+socket.on('yourTurnNotice', ({ isGoalBonus }) => {
+  const toast = document.getElementById('your-turn-toast');
+  toast.textContent = isGoalBonus
+    ? '🌟 あなたの番です！（ゴール済みボーナスルーレット）'
+    : '🎯 あなたの番です！ルーレットを回してください！';
+  toast.classList.remove('hidden');
+
+  clearTimeout(turnToastTimeout);
+  turnToastTimeout = setTimeout(() => {
+    toast.classList.add('hidden');
+  }, 1800);
+});
+
+// 結果バナー（1.5秒間表示）
 socket.on('showResultBanner', ({ title, subtitle, theme }) => {
   const overlay = document.getElementById('result-banner-overlay');
   const box = document.getElementById('result-banner-box');
@@ -194,19 +212,20 @@ function renderGameBoard(state) {
   const activePlayer = state.players[state.turnIndex];
   const isMyTurn = activePlayer && activePlayer.id === myPlayerId;
 
-  // 上部：色付きプレイヤーバナー
   const statusBar = document.getElementById('players-status-bar');
   statusBar.innerHTML = '';
   state.players.forEach((p, idx) => {
     const div = document.createElement('div');
     div.className = `player-card ${idx === state.turnIndex ? 'active-turn' : ''}`;
     div.style.borderLeftColor = p.color;
-    div.style.backgroundColor = `${p.color}12`; // 薄い背景色 tint
 
     div.innerHTML = `
       <div class="p-header">
-        <span class="p-name">${p.name}「${p.job.currentName}」</span>
-        <span class="p-badge" style="background:${p.color}">${p.finished ? 'GOAL済' : `P${idx + 1}`}</span>
+        <div style="display:flex; align-items:center; gap:5px; overflow:hidden;">
+          <span class="p-name-tag" style="background:${p.color}">${escapeHtml(p.name)}</span>
+          <span class="p-job">「${p.job.currentName}」</span>
+        </div>
+        <span class="p-badge">${p.finished ? 'GOAL済' : `P${idx + 1}`}</span>
       </div>
       <div class="p-money">${p.displayMoney}</div>
       <div class="p-sub">物件:${p.properties.length} / 家族:${p.married ? '既婚' : '独身'}${p.childrenCount > 0 ? `(子${p.childrenCount})` : ''}</div>
@@ -214,17 +233,27 @@ function renderGameBoard(state) {
     statusBar.appendChild(div);
   });
 
-  // ターン表示
+  // ターン表示＆自分のターンバッジ強調
   const turnLabel = document.getElementById('current-turn-label');
+  const turnPanelBox = document.getElementById('turn-panel-box');
+  const myTurnBadge = document.getElementById('my-turn-badge');
+
   turnLabel.textContent = activePlayer.finished
     ? `${activePlayer.name}さん（ゴールボーナス）`
     : `${activePlayer.name}さんのターン`;
   turnLabel.style.color = activePlayer.color;
 
-  const spinBtn = document.getElementById('btn-spin');
-  spinBtn.disabled = !(isMyTurn && !activePlayer.isSpinning);
+  if (isMyTurn) {
+    turnPanelBox.classList.add('is-my-turn');
+    myTurnBadge.classList.remove('hidden');
+  } else {
+    turnPanelBox.classList.remove('is-my-turn');
+    myTurnBadge.classList.add('hidden');
+  }
 
-  // 盤面マス描画
+  const spinBtn = document.getElementById('btn-spin');
+  spinBtn.disabled = !(isMyTurn && !state.turnLocked);
+
   const grid = document.getElementById('board-grid');
   grid.innerHTML = '';
   state.board.forEach(tile => {
@@ -232,7 +261,7 @@ function renderGameBoard(state) {
     tileEl.className = `tile ${tile.type}`;
     const playersHere = state.players.filter(p => p.position === tile.index);
     const tokensHtml = playersHere.map(p =>
-      `<span class="token" style="background:${p.color}">${p.name}</span>`
+      `<span class="token" style="background:${p.color}">${escapeHtml(p.name)}</span>`
     ).join('');
 
     tileEl.innerHTML = `
@@ -250,6 +279,7 @@ socket.on('timerUpdate', (timeLeft) => {
 
 document.getElementById('btn-spin').onclick = () => {
   document.getElementById('btn-spin').disabled = true;
+  document.getElementById('your-turn-toast').classList.add('hidden');
   socket.emit('spinRoulette');
 };
 
@@ -268,7 +298,7 @@ socket.on('rouletteStart', ({ targetNumber }) => {
   }, 2100);
 });
 
-// クイズ・じゃんけん・分岐・物件モーダル（全員に問題・選択肢を表示）
+// インタラクティブイベントモーダル
 socket.on('interactiveEvent', (data) => {
   const modal = document.getElementById('event-modal');
   const actorBadge = document.getElementById('event-actor-badge');
@@ -299,8 +329,8 @@ socket.on('interactiveEvent', (data) => {
       `;
     }
   } else if (data.type === 'QUIZ') {
-    // 全員に問題と選択肢を表示（他プレイヤーは押せない状態で見える）
-    titleEl.textContent = `❓ クイズ！（正解 +$${data.amount.toLocaleString()}）`;
+    const diffLabel = { EASY: 'イージー', NORMAL: 'ノーマル', HARD: 'ハード' }[data.difficulty] || 'ノーマル';
+    titleEl.textContent = `❓ クイズ【${diffLabel}】（正解 +$${data.amount.toLocaleString()}）`;
     descEl.textContent = data.question;
     data.options.forEach((opt, idx) => {
       const btn = document.createElement('button');
@@ -368,14 +398,14 @@ socket.on('chatMessage', ({ sender, color, text, isSystem }) => {
   if (isSystem) {
     div.textContent = `📢 ${text}`;
   } else {
-    div.innerHTML = `<strong style="color:${color || '#333'}">${sender}:</strong> ${escapeHtml(text)}`;
+    div.innerHTML = `<strong style="color:${color || '#333'}">${escapeHtml(sender)}:</strong> ${escapeHtml(text)}`;
   }
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 });
 
 function escapeHtml(str) {
-  return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+  return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 }
 
 // 総決算＆ドキドキランキング表示
@@ -395,7 +425,7 @@ socket.on('gameFinished', ({ results, isAutoMatch }) => {
     item.style.borderLeftColor = r.color;
     item.innerHTML = `
       <div>
-        <strong>第${actualRank}位：${r.name}</strong>（${r.job}）<br>
+        <strong>第${actualRank}位：${escapeHtml(r.name)}</strong>（${r.job}）<br>
         <small>所持金 $${r.cash.toLocaleString()} ＋ 物件 $${r.propertyValue.toLocaleString()} ＋ 家族 $${r.familyBonus.toLocaleString()}</small>
       </div>
       <div style="font-size:1.2rem; font-weight:bold; color:#27ae60;">
@@ -424,4 +454,17 @@ document.getElementById('btn-rematch').onclick = () => {
 };
 document.getElementById('btn-cancel-rematch').onclick = () => socket.emit('voteRematch', false);
 socket.on('rematchStatus', (msg) => { document.getElementById('rematch-status').textContent = msg; });
-socket.on('forceReturnLobby', (msg) => { alert(msg); showScreen('lobby-screen'); });
+
+socket.on('forceReturnLobby', (msg) => {
+  clearInterval(rouletteInterval);
+  clearInterval(jobRouletteInterval);
+  clearTimeout(turnToastTimeout);
+  document.getElementById('countdown-overlay').classList.add('hidden');
+  document.getElementById('job-roulette-modal').classList.add('hidden');
+  document.getElementById('event-modal').classList.add('hidden');
+  document.getElementById('result-banner-overlay').classList.add('hidden');
+  document.getElementById('your-turn-toast').classList.add('hidden');
+  currentRoomState = null;
+  alert(msg);
+  showScreen('lobby-screen');
+});

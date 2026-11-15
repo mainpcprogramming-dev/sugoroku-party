@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { Pool } = require('pg');
 const path = require('path');
+const { QUIZ_BANK } = require('./quizzes');
 
 const app = express();
 const server = http.createServer(app);
@@ -28,19 +29,17 @@ if (process.env.DATABASE_URL) {
   `).catch(err => console.error('DB Init Error:', err));
 }
 
-// プレイヤー識別用カラーパレット
 const PLAYER_COLORS = [
   '#e74c3c', // レッド
-  '#3498db', // ブルー
-  '#2ecc71', // グリーン
-  '#f39c12', // オレンジ
-  '#9b59b6', // パープル
-  '#1abc9c', // ターコイズ
-  '#e84393', // ピンク
-  '#34495e'  // ネイビー
+  '#2980b9', // ブルー
+  '#27ae60', // グリーン
+  '#e67e22', // オレンジ
+  '#8e44ad', // パープル
+  '#16a085', // ターコイズ
+  '#d81b60', // ピンク
+  '#2c3e50'  // ネイビー
 ];
 
-// 職業リスト（ランクアップ対応）
 const JOBS = [
   { name: 'フリーター', rankUpName: '店長', salary: 2000, rankUpSalary: 4500 },
   { name: '会社員', rankUpName: '部長', salary: 4000, rankUpSalary: 7500 },
@@ -58,20 +57,9 @@ const PROPERTIES = [
   { id: 'p5', name: '宇宙旅行ツアー会社', price: 40000, sellValue: 75000 }
 ];
 
-const QUIZZES = [
-  { q: '日本の初代内閣総理大臣は？', options: ['伊藤博文', '黒田清隆', '山縣有朋'], ans: 0 },
-  { q: '太陽系で一番大きい惑星は？', options: ['土星', '木星', '海王星'], ans: 1 },
-  { q: '1000円札の肖像画（2024年〜）は誰？', options: ['野口英世', '渋沢栄一', '北里柴三郎'], ans: 2 },
-  { q: 'ダイヤモンドの主成分の元素は？', options: ['炭素', 'ケイ素', '窒素'], ans: 0 },
-  { q: '世界で一番面積が大きい国は？', options: ['カナダ', 'アメリカ', 'ロシア'], ans: 2 },
-  { q: '富士山の標高は約何メートル？', options: ['3,776m', '3,556m', '3,996m'], ans: 0 },
-  { q: '1オクターブは何音ある？', options: ['7音', '8音', '12音'], ans: 1 }
-];
-
 const rooms = {};
 let autoMatchQueue = [];
 
-// ランダム盤面生成（新マス追加版）
 function generateBoard() {
   const board = [];
   const totalTiles = 48;
@@ -85,7 +73,6 @@ function generateBoard() {
       board.push({ index: i, type: 'GOAL', label: 'GOAL!', desc: '人生のゴール！' });
       continue;
     }
-    // 強制ストップマス（給料日・分岐・結婚）
     if (i === 9 || i === 24 || i === 38) {
       board.push({ index: i, type: 'PAYDAY', label: '給料日(STOP)', desc: '必ずストップ！お給料をもらう', stop: true });
       continue;
@@ -104,7 +91,6 @@ function generateBoard() {
     const rand = Math.random();
 
     if (rand < 0.16) {
-      // なにもない通常マス
       board.push({ index: i, type: 'NORMAL', label: '通常マス', desc: '穏やかな一日。特に何も起きない。' });
     } else if (rand < 0.36) {
       const val = baseAmount * (Math.floor(Math.random() * 3) + 1);
@@ -148,11 +134,14 @@ function createRoomState(roomId, isAutoMatch = false) {
   return {
     id: roomId,
     isAutoMatch,
-    status: 'LOBBY', // LOBBY, COUNTDOWN, JOB_ROULETTE, PLAYING, FINISHED
+    status: 'LOBBY',
     timeLimit: 30,
+    quizDifficulty: 'NORMAL', // EASY, NORMAL, HARD
+    usedQuizIndices: new Set(),
     players: [],
     board: [],
     turnIndex: 0,
+    turnLocked: false,
     goalOrder: [],
     turnTimer: null,
     timeLeft: 30,
@@ -173,20 +162,35 @@ function broadcastRoomState(roomId) {
     isAutoMatch: room.isAutoMatch,
     status: room.status,
     timeLimit: room.timeLimit,
+    quizDifficulty: room.quizDifficulty,
     players: sanitizedPlayers,
     board: room.board,
     turnIndex: room.turnIndex,
+    turnLocked: room.turnLocked,
     timeLeft: room.timeLeft
   });
 }
 
-// 結果バナーを全員に2.2秒表示してから次の処理へ進むヘルパー
 function showResultBannerAndProceed(roomId, bannerData, nextCallback) {
   io.to(roomId).emit('showResultBanner', bannerData);
   setTimeout(() => {
     io.to(roomId).emit('hideResultBanner');
     if (nextCallback) nextCallback();
-  }, 2200);
+  }, 1500);
+}
+
+// 難易度に応じた未使用クイズを1問取得
+function pickQuizForRoom(room) {
+  const bank = QUIZ_BANK[room.quizDifficulty] || QUIZ_BANK.NORMAL;
+  if (room.usedQuizIndices.size >= bank.length) {
+    room.usedQuizIndices.clear();
+  }
+  let idx;
+  do {
+    idx = Math.floor(Math.random() * bank.length);
+  } while (room.usedQuizIndices.has(idx));
+  room.usedQuizIndices.add(idx);
+  return bank[idx];
 }
 
 function startTurnTimer(roomId) {
@@ -204,9 +208,12 @@ function startTurnTimer(roomId) {
     if (room.timeLeft <= 0) {
       clearInterval(room.turnTimer);
       const currentPlayer = room.players[room.turnIndex];
-      if (currentPlayer && !currentPlayer.isSpinning) {
-        sendSystemChat(roomId, `時間切れ！${currentPlayer.name}さんのルーレットが自動で回ります。`);
-        executeSpin(roomId, currentPlayer.id);
+      if (currentPlayer && !room.turnLocked) {
+        // 時間切れ時はルーレットを回さず次の人のターンへ移動
+        room.turnLocked = true;
+        sendSystemChat(roomId, `⏰ 時間切れ！${currentPlayer.name}さんのターンはスキップされ、次のプレイヤーへ移動します。`);
+        broadcastRoomState(roomId);
+        setTimeout(() => nextTurn(roomId), 1000);
       }
     }
   }, 1000);
@@ -216,15 +223,23 @@ function nextTurn(roomId) {
   const room = rooms[roomId];
   if (!room || room.status !== 'PLAYING') return;
 
-  // 全員ゴールしたら終了
   if (room.players.every(p => p.finished)) {
     finishGame(roomId);
     return;
   }
 
-  // ゴール済みのプレイヤーにもターンを回す（出た目×$100ボーナス）
   room.turnIndex = (room.turnIndex + 1) % room.players.length;
+  room.turnLocked = false;
   broadcastRoomState(roomId);
+
+  // 次のターンのプレイヤー個人に「あなたの番です！」通知を送信
+  const nextPlayer = room.players[room.turnIndex];
+  if (nextPlayer) {
+    io.to(nextPlayer.id).emit('yourTurnNotice', {
+      isGoalBonus: nextPlayer.finished
+    });
+  }
+
   startTurnTimer(roomId);
 }
 
@@ -232,10 +247,12 @@ function executeSpin(roomId, playerId) {
   const room = rooms[roomId];
   if (!room || room.status !== 'PLAYING') return;
   const player = room.players[room.turnIndex];
-  if (!player || player.id !== playerId || player.isSpinning) return;
 
+  if (!player || player.id !== playerId || room.turnLocked) return;
+
+  room.turnLocked = true;
   clearInterval(room.turnTimer);
-  player.isSpinning = true;
+  broadcastRoomState(roomId);
 
   const result = Math.floor(Math.random() * 6) + 1;
   io.to(roomId).emit('rouletteStart', { playerId: player.id, targetNumber: result });
@@ -243,11 +260,9 @@ function executeSpin(roomId, playerId) {
   setTimeout(() => {
     if (!rooms[roomId]) return;
 
-    // すでにゴールしているプレイヤーのボーナスターン処理
     if (player.finished) {
       const bonus = result * 100;
       player.money += bonus;
-      player.isSpinning = false;
       sendSystemChat(roomId, `🌟 ゴール済みボーナス！${player.name}さんは「${result}」を出し、$${bonus.toLocaleString()}獲得しました！`);
       broadcastRoomState(roomId);
       setTimeout(() => nextTurn(roomId), 1200);
@@ -261,10 +276,9 @@ function executeSpin(roomId, playerId) {
 
 function movePlayerStepByStep(roomId, player, stepsRemaining) {
   const room = rooms[roomId];
-  if (!room) return;
+  if (!room || room.status !== 'PLAYING') return;
 
   if (stepsRemaining <= 0 || player.position >= room.board.length - 1) {
-    player.isSpinning = false;
     handleTileLanding(roomId, player);
     return;
   }
@@ -275,15 +289,12 @@ function movePlayerStepByStep(roomId, player, stepsRemaining) {
   const currentTile = room.board[player.position];
 
   if (currentTile.type === 'GOAL') {
-    player.isSpinning = false;
     handleGoal(roomId, player);
     return;
   }
 
-  // 強制ストップ判定
   if (currentTile.stop && stepsRemaining > 1) {
     sendSystemChat(roomId, `${player.name}さんは「${currentTile.label}」で強制ストップ！`);
-    player.isSpinning = false;
     handleTileLanding(roomId, player);
     return;
   }
@@ -312,6 +323,7 @@ function handleGoal(roomId, player) {
 
 function handleTileLanding(roomId, player) {
   const room = rooms[roomId];
+  if (!room || room.status !== 'PLAYING') return;
   const tile = room.board[player.position];
   broadcastRoomState(roomId);
 
@@ -391,10 +403,11 @@ function handleTileLanding(roomId, player) {
     });
 
   } else if (tile.type === 'QUIZ') {
-    const quiz = QUIZZES[Math.floor(Math.random() * QUIZZES.length)];
+    const quiz = pickQuizForRoom(room);
     player.pendingEvent = { type: 'QUIZ', quiz, amount: tile.amount };
     io.to(roomId).emit('interactiveEvent', {
       type: 'QUIZ',
+      difficulty: room.quizDifficulty,
       playerId: player.id,
       playerName: player.name,
       question: quiz.q,
@@ -549,6 +562,17 @@ io.on('connection', (socket) => {
     }
   });
 
+  // クイズ難易度変更（EASY / NORMAL / HARD）
+  socket.on('changeQuizDifficulty', (difficulty) => {
+    const room = rooms[socket.roomId];
+    if (!room || room.status !== 'LOBBY') return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (player && player.isHost && ['EASY', 'NORMAL', 'HARD'].includes(difficulty)) {
+      room.quizDifficulty = difficulty;
+      broadcastRoomState(room.id);
+    }
+  });
+
   socket.on('shufflePlayers', () => {
     const room = rooms[socket.roomId];
     if (!room || room.status !== 'LOBBY') return;
@@ -581,8 +605,10 @@ io.on('connection', (socket) => {
     room.status = 'COUNTDOWN';
     room.board = generateBoard();
     room.turnIndex = 0;
+    room.turnLocked = false;
     room.goalOrder = [];
     room.rematchVotes = {};
+    room.usedQuizIndices.clear();
 
     room.players.forEach((p, idx) => {
       p.color = PLAYER_COLORS[idx % PLAYER_COLORS.length];
@@ -594,13 +620,11 @@ io.on('connection', (socket) => {
       p.married = false;
       p.childrenCount = 0;
       p.finished = false;
-      p.isSpinning = false;
     });
 
     broadcastRoomState(roomId);
     io.to(roomId).emit('startCountdown', 3);
 
-    // カウントダウン終了後、職業ルーレットフェーズへ移行
     setTimeout(() => {
       if (!rooms[roomId]) return;
       room.status = 'JOB_ROULETTE';
@@ -609,7 +633,6 @@ io.on('connection', (socket) => {
     }, 3200);
   }
 
-  // 各自が職業ルーレットをストップした時の処理
   socket.on('stopJobRoulette', () => {
     const room = rooms[socket.roomId];
     if (!room || room.status !== 'JOB_ROULETTE') return;
@@ -633,16 +656,23 @@ io.on('connection', (socket) => {
       salary: chosen.salary
     });
 
-    // 全員の職業が決まったらゲーム開始！
     if (room.players.every(p => p.jobDecided)) {
       setTimeout(() => {
         if (!rooms[room.id]) return;
         room.status = 'PLAYING';
+        room.turnLocked = false;
         io.to(room.id).emit('allJobsDecided');
-        sendSystemChat(room.id, `🎮 全員の職業が決定！最初は${room.players[0].name}さんのターンです！`);
+        const firstPlayer = room.players[0];
+        sendSystemChat(room.id, `🎮 全員の職業が決定！最初は${firstPlayer.name}さんのターンです！`);
         broadcastRoomState(room.id);
+
+        // 最初のプレイヤーにも「あなたの番です！」通知
+        if (firstPlayer) {
+          io.to(firstPlayer.id).emit('yourTurnNotice', { isGoalBonus: false });
+        }
+
         startTurnTimer(room.id);
-      }, 1800);
+      }, 1500);
     }
   });
 
@@ -825,8 +855,7 @@ io.on('connection', (socket) => {
       properties: [],
       married: false,
       childrenCount: 0,
-      finished: false,
-      isSpinning: false
+      finished: false
     };
   }
 
@@ -846,15 +875,36 @@ io.on('connection', (socket) => {
       if (room.players.length === 0) {
         clearInterval(room.turnTimer);
         delete rooms[roomId];
-      } else {
-        if (leftPlayer.isHost) room.players[0].isHost = true;
-        sendSystemChat(roomId, `${leftPlayer.name}さんが退出しました。`);
-        if (room.status === 'PLAYING') {
-          if (room.turnIndex >= room.players.length) room.turnIndex = 0;
-          nextTurn(roomId);
-        } else {
-          broadcastRoomState(roomId);
+        return;
+      }
+
+      if (room.status !== 'LOBBY' && room.players.length <= 1) {
+        clearInterval(room.turnTimer);
+        const remainingSocketId = room.players[0].id;
+        const remainingSocket = io.sockets.sockets.get(remainingSocketId);
+        if (remainingSocket) {
+          remainingSocket.leave(roomId);
+          remainingSocket.roomId = null;
         }
+        io.to(remainingSocketId).emit('forceReturnLobby', '他のプレイヤーが離脱し残り1人になったため、ゲームを強制終了してロビーに戻ります。');
+        delete rooms[roomId];
+        return;
+      }
+
+      if (leftPlayer.isHost) room.players[0].isHost = true;
+      sendSystemChat(roomId, `${leftPlayer.name}さんが退出しました。`);
+
+      if (room.status === 'PLAYING') {
+        if (room.turnIndex >= room.players.length) room.turnIndex = 0;
+        room.turnLocked = false;
+        broadcastRoomState(roomId);
+        const nextPlayer = room.players[room.turnIndex];
+        if (nextPlayer) {
+          io.to(nextPlayer.id).emit('yourTurnNotice', { isGoalBonus: nextPlayer.finished });
+        }
+        startTurnTimer(roomId);
+      } else {
+        broadcastRoomState(roomId);
       }
     }
   }
