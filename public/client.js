@@ -4,9 +4,13 @@ let currentRoomState = null;
 let rouletteInterval = null;
 let jobRouletteInterval = null;
 let treasureRouletteInterval = null;
+let minusRouletteInterval = null;
+let mysteryRouletteInterval = null;
 let diceMgRollInterval = null;
 let clickChallengeInterval = null;
 let turnToastTimeout = null;
+let currentClickTarget = 50;
+let minusRouletteCache = { amounts: [], players: [], isMyEvent: false };
 
 function showScreen(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -183,7 +187,149 @@ socket.on('allJobsDecided', () => {
 });
 
 // ========================
-// 1. お宝ルーレットイベント
+// 💀 マイナスルーレット（2段階：金額→ターゲットプレイヤー）
+// ========================
+socket.on('startMinusRoulette', ({ actorId, actorName, amounts, players }) => {
+  const isMyEvent = actorId === myPlayerId;
+  minusRouletteCache = { amounts, players, isMyEvent };
+
+  const modal = document.getElementById('minus-roulette-modal');
+  const badge = document.getElementById('minus-actor-badge');
+  const titleEl = document.getElementById('minus-roulette-title');
+  const descEl = document.getElementById('minus-roulette-desc');
+  const slotEl = document.getElementById('minus-roulette-slot');
+  const stopBtn = document.getElementById('btn-stop-minus');
+  const waitMsg = document.getElementById('minus-wait-msg');
+
+  badge.textContent = `${actorName}さんの道連れルーレット`;
+  titleEl.textContent = '💀 ステップ1：マイナス金額決定！';
+  descEl.textContent = 'まずは失う金額をルーレットで決めよう！';
+  slotEl.className = 'job-slot minus-slot';
+  modal.classList.remove('hidden');
+
+  if (isMyEvent) {
+    stopBtn.classList.remove('hidden');
+    stopBtn.disabled = false;
+    stopBtn.textContent = '金額をストップ！';
+    waitMsg.classList.add('hidden');
+  } else {
+    stopBtn.classList.add('hidden');
+    waitMsg.textContent = `${actorName}さんがマイナス金額を止めています...`;
+    waitMsg.classList.remove('hidden');
+  }
+
+  let idx = 0;
+  clearInterval(minusRouletteInterval);
+  minusRouletteInterval = setInterval(() => {
+    slotEl.textContent = `-$${amounts[idx % amounts.length].toLocaleString()}`;
+    idx++;
+  }, 60);
+});
+
+document.getElementById('btn-stop-minus').onclick = () => {
+  document.getElementById('btn-stop-minus').disabled = true;
+  socket.emit('stopMinusRoulette');
+};
+
+socket.on('minusRouletteAmountDecided', ({ amount, actorName }) => {
+  clearInterval(minusRouletteInterval);
+  const titleEl = document.getElementById('minus-roulette-title');
+  const descEl = document.getElementById('minus-roulette-desc');
+  const slotEl = document.getElementById('minus-roulette-slot');
+  const stopBtn = document.getElementById('btn-stop-minus');
+  const waitMsg = document.getElementById('minus-wait-msg');
+
+  slotEl.textContent = `-$${amount.toLocaleString()} に決定！`;
+
+  setTimeout(() => {
+    titleEl.textContent = '🎯 ステップ2：誰が払うか決定！';
+    descEl.textContent = `-$${amount.toLocaleString()} を支払うプレイヤーを決めるぞ！`;
+    slotEl.className = 'job-slot';
+
+    if (minusRouletteCache.isMyEvent) {
+      stopBtn.disabled = false;
+      stopBtn.textContent = 'プレイヤーをストップ！';
+    } else {
+      waitMsg.textContent = `${actorName}さんが対象プレイヤーを止めています...`;
+    }
+
+    const pList = minusRouletteCache.players;
+    let idx = 0;
+    clearInterval(minusRouletteInterval);
+    minusRouletteInterval = setInterval(() => {
+      slotEl.textContent = pList[idx % pList.length].name;
+      idx++;
+    }, 65);
+  }, 1100);
+});
+
+socket.on('minusRouletteTargetDecided', ({ targetName, amount }) => {
+  clearInterval(minusRouletteInterval);
+  const slotEl = document.getElementById('minus-roulette-slot');
+  slotEl.className = 'job-slot minus-slot';
+  slotEl.innerHTML = `${escapeHtml(targetName)} さん！<br><small style="font-size:1.1rem;">-$${amount.toLocaleString()} 没収！</small>`;
+});
+
+socket.on('closeMinusRoulette', () => {
+  clearInterval(minusRouletteInterval);
+  document.getElementById('minus-roulette-modal').classList.add('hidden');
+});
+
+// ========================
+// ❓ ？？？マス（プラスorマイナスルーレット）
+// ========================
+socket.on('startMysteryRoulette', ({ actorId, actorName, items }) => {
+  const modal = document.getElementById('mystery-modal');
+  const badge = document.getElementById('mystery-actor-badge');
+  const slotEl = document.getElementById('mystery-slot');
+  const stopBtn = document.getElementById('btn-stop-mystery');
+  const waitMsg = document.getElementById('mystery-wait-msg');
+
+  const isMyEvent = actorId === myPlayerId;
+  badge.textContent = `${actorName}さんの？？？ルーレット`;
+  slotEl.className = 'job-slot';
+  modal.classList.remove('hidden');
+
+  if (isMyEvent) {
+    stopBtn.classList.remove('hidden');
+    stopBtn.disabled = false;
+    waitMsg.classList.add('hidden');
+  } else {
+    stopBtn.classList.add('hidden');
+    waitMsg.textContent = `${actorName}さんが？？？ルーレットを止めています...`;
+    waitMsg.classList.remove('hidden');
+  }
+
+  let idx = 0;
+  clearInterval(mysteryRouletteInterval);
+  mysteryRouletteInterval = setInterval(() => {
+    const val = items[idx % items.length];
+    slotEl.textContent = val;
+    slotEl.style.color = val.startsWith('+') ? '#1e8449' : '#c0392b';
+    idx++;
+  }, 60);
+});
+
+document.getElementById('btn-stop-mystery').onclick = () => {
+  document.getElementById('btn-stop-mystery').disabled = true;
+  socket.emit('stopMysteryRoulette');
+};
+
+socket.on('mysteryRouletteDecided', ({ label, isWin }) => {
+  clearInterval(mysteryRouletteInterval);
+  const slotEl = document.getElementById('mystery-slot');
+  slotEl.className = isWin ? 'job-slot treasure-slot' : 'job-slot minus-slot';
+  slotEl.style.color = '';
+  slotEl.textContent = `${label} ${isWin ? '獲得！！' : '没収…'}`;
+});
+
+socket.on('closeMysteryRoulette', () => {
+  clearInterval(mysteryRouletteInterval);
+  document.getElementById('mystery-modal').classList.add('hidden');
+});
+
+// ========================
+// 💎 お宝ルーレットイベント
 // ========================
 socket.on('startTreasureRoulette', ({ playerId, playerName, treasures }) => {
   const modal = document.getElementById('treasure-modal');
@@ -230,7 +376,7 @@ socket.on('closeTreasureRoulette', () => {
 });
 
 // ========================
-// 2. クリック連打チャレンジ
+// ⚡ クリック連打チャレンジ（他プレイヤーにもリアルタイム回数同期）
 // ========================
 socket.on('startClickChallenge', ({ playerId, playerName, targetClicks, reward, penalty }) => {
   const modal = document.getElementById('click-modal');
@@ -241,6 +387,7 @@ socket.on('startClickChallenge', ({ playerId, playerName, targetClicks, reward, 
   const tapBtn = document.getElementById('btn-tap-target');
   const waitMsg = document.getElementById('click-wait-msg');
 
+  currentClickTarget = targetClicks;
   const isMyEvent = playerId === myPlayerId;
   badge.textContent = `${playerName}さんの連打チャレンジ`;
   ruleText.innerHTML = `5秒以内に <strong>${targetClicks}回</strong> タップせよ！<br>成功: <span style="color:#27ae60;">+$${reward.toLocaleString()}</span> ／ 失敗: <span style="color:#e74c3c;">-$${penalty.toLocaleString()}</span>`;
@@ -249,11 +396,33 @@ socket.on('startClickChallenge', ({ playerId, playerName, targetClicks, reward, 
 
   clearInterval(clickChallengeInterval);
 
+  let prep = 3;
+  timerEl.textContent = `開始まで... ${prep}`;
+
   if (!isMyEvent) {
     tapBtn.classList.add('hidden');
-    timerEl.textContent = '挑戦中...';
-    waitMsg.textContent = `${playerName}さんが連打チャレンジに挑戦中です...`;
+    waitMsg.textContent = `${playerName}さんが連打チャレンジに挑戦中です...（リアルタイム中継中）`;
     waitMsg.classList.remove('hidden');
+
+    clickChallengeInterval = setInterval(() => {
+      prep--;
+      if (prep > 0) {
+        timerEl.textContent = `開始まで... ${prep}`;
+      } else {
+        clearInterval(clickChallengeInterval);
+        let timeLeftMs = 5000;
+        timerEl.textContent = `残り 5.0 秒！`;
+        clickChallengeInterval = setInterval(() => {
+          timeLeftMs -= 100;
+          if (timeLeftMs > 0) {
+            timerEl.textContent = `残り ${(timeLeftMs / 1000).toFixed(1)} 秒！`;
+          } else {
+            clearInterval(clickChallengeInterval);
+            timerEl.textContent = 'タイムアップ！';
+          }
+        }, 100);
+      }
+    }, 1000);
     return;
   }
 
@@ -262,14 +431,13 @@ socket.on('startClickChallenge', ({ playerId, playerName, targetClicks, reward, 
   tapBtn.disabled = true;
   tapBtn.textContent = 'スタート待ち...';
 
-  let prep = 3;
-  timerEl.textContent = `開始まで... ${prep}`;
   let clicks = 0;
 
   tapBtn.onclick = () => {
     if (tapBtn.disabled) return;
     clicks++;
     counterEl.textContent = `${clicks} / ${targetClicks} 回`;
+    socket.emit('clickChallengeTap', { clicks });
   };
 
   clickChallengeInterval = setInterval(() => {
@@ -300,13 +468,21 @@ socket.on('startClickChallenge', ({ playerId, playerName, targetClicks, reward, 
   }, 1000);
 });
 
+// 他プレイヤー画面でのリアルタイム回数更新
+socket.on('clickChallengeProgress', ({ clicks }) => {
+  const counterEl = document.getElementById('click-counter-display');
+  if (counterEl) {
+    counterEl.textContent = `${clicks} / ${currentClickTarget} 回`;
+  }
+});
+
 socket.on('closeClickChallenge', () => {
   clearInterval(clickChallengeInterval);
   document.getElementById('click-modal').classList.add('hidden');
 });
 
 // ========================
-// 3. 全員参加ダイスミニゲーム
+// 🎲 全員参加ダイスミニゲーム
 // ========================
 function renderDiceMinigameParticipants(participants, currentRollerId) {
   const listEl = document.getElementById('dice-mg-list');
@@ -660,19 +836,29 @@ document.getElementById('btn-rematch').onclick = () => {
 document.getElementById('btn-cancel-rematch').onclick = () => socket.emit('voteRematch', false);
 socket.on('rematchStatus', (msg) => { document.getElementById('rematch-status').textContent = msg; });
 
-socket.on('forceReturnLobby', (msg) => {
-  clearInterval(rouletteInterval);
-  clearInterval(jobRouletteInterval);
+function hideAllEventModals() {
   clearInterval(treasureRouletteInterval);
+  clearInterval(minusRouletteInterval);
+  clearInterval(mysteryRouletteInterval);
   clearInterval(diceMgRollInterval);
   clearInterval(clickChallengeInterval);
-  clearTimeout(turnToastTimeout);
-  document.getElementById('countdown-overlay').classList.add('hidden');
-  document.getElementById('job-roulette-modal').classList.add('hidden');
   document.getElementById('treasure-modal').classList.add('hidden');
+  document.getElementById('minus-roulette-modal').classList.add('hidden');
+  document.getElementById('mystery-modal').classList.add('hidden');
   document.getElementById('click-modal').classList.add('hidden');
   document.getElementById('dice-minigame-modal').classList.add('hidden');
   document.getElementById('event-modal').classList.add('hidden');
+}
+
+socket.on('closeAllEventModals', hideAllEventModals);
+
+socket.on('forceReturnLobby', (msg) => {
+  clearInterval(rouletteInterval);
+  clearInterval(jobRouletteInterval);
+  clearTimeout(turnToastTimeout);
+  hideAllEventModals();
+  document.getElementById('countdown-overlay').classList.add('hidden');
+  document.getElementById('job-roulette-modal').classList.add('hidden');
   document.getElementById('result-banner-overlay').classList.add('hidden');
   document.getElementById('your-turn-toast').classList.add('hidden');
   currentRoomState = null;
