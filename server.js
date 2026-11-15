@@ -60,9 +60,38 @@ const PROPERTIES = [
 const rooms = {};
 let autoMatchQueue = [];
 
+function formatMoney(amount) {
+  if (amount < 0) {
+    return `-$${Math.abs(amount).toLocaleString()}`;
+  }
+  return `$${amount.toLocaleString()}`;
+}
+
+// ランダム盤面生成（強制ストップマス：3候補からランダムに選ばれた2種類を各1マス＝計2マス配置）
 function generateBoard() {
   const board = [];
   const totalTiles = 48;
+
+  const stopCandidates = [
+    { type: 'PAYDAY', label: '給料日(STOP)', desc: '必ずストップ！お給料をもらう', stop: true },
+    { type: 'MARRIAGE', label: '結婚(STOP)', desc: '人生の節目！ご祝儀か破談か…', stop: true },
+    { type: 'BRANCH', label: '人生の分岐(STOP)', desc: '堅実ルートか勝負ルートか選択！', stop: true }
+  ];
+  for (let i = stopCandidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [stopCandidates[i], stopCandidates[j]] = [stopCandidates[j], stopCandidates[i]];
+  }
+
+  const stopPool = [
+    { ...stopCandidates[0] },
+    { ...stopCandidates[1] }
+  ];
+
+  const stopPositions = [16, 32];
+  const stopMap = {};
+  stopPositions.forEach((pos, idx) => {
+    stopMap[pos] = stopPool[idx];
+  });
 
   for (let i = 0; i < totalTiles; i++) {
     if (i === 0) {
@@ -73,16 +102,8 @@ function generateBoard() {
       board.push({ index: i, type: 'GOAL', label: 'GOAL!', desc: '人生のゴール！' });
       continue;
     }
-    if (i === 9 || i === 24 || i === 38) {
-      board.push({ index: i, type: 'PAYDAY', label: '給料日(STOP)', desc: '必ずストップ！お給料をもらう', stop: true });
-      continue;
-    }
-    if (i === 14) {
-      board.push({ index: i, type: 'MARRIAGE', label: '結婚(STOP)', desc: '人生の節目！ご祝儀をもらう', stop: true });
-      continue;
-    }
-    if (i === 20) {
-      board.push({ index: i, type: 'BRANCH', label: '人生の分岐(STOP)', desc: '堅実ルートか勝負ルートか選択！', stop: true });
+    if (stopMap[i]) {
+      board.push({ index: i, ...stopMap[i] });
       continue;
     }
 
@@ -136,7 +157,7 @@ function createRoomState(roomId, isAutoMatch = false) {
     isAutoMatch,
     status: 'LOBBY',
     timeLimit: 30,
-    quizDifficulty: 'NORMAL', // EASY, NORMAL, HARD
+    quizDifficulty: 'NORMAL',
     usedQuizIndices: new Set(),
     players: [],
     board: [],
@@ -154,7 +175,8 @@ function broadcastRoomState(roomId) {
   if (!room) return;
   const sanitizedPlayers = room.players.map(p => ({
     ...p,
-    displayMoney: (room.status === 'PLAYING' && p.finished) ? '???' : `$${p.money.toLocaleString()}`
+    isNegative: !(room.status === 'PLAYING' && p.finished) && p.money < 0,
+    displayMoney: (room.status === 'PLAYING' && p.finished) ? '???' : formatMoney(p.money)
   }));
 
   io.to(roomId).emit('roomStateUpdate', {
@@ -179,7 +201,6 @@ function showResultBannerAndProceed(roomId, bannerData, nextCallback) {
   }, 1500);
 }
 
-// 難易度に応じた未使用クイズを1問取得
 function pickQuizForRoom(room) {
   const bank = QUIZ_BANK[room.quizDifficulty] || QUIZ_BANK.NORMAL;
   if (room.usedQuizIndices.size >= bank.length) {
@@ -209,7 +230,6 @@ function startTurnTimer(roomId) {
       clearInterval(room.turnTimer);
       const currentPlayer = room.players[room.turnIndex];
       if (currentPlayer && !room.turnLocked) {
-        // 時間切れ時はルーレットを回さず次の人のターンへ移動
         room.turnLocked = true;
         sendSystemChat(roomId, `⏰ 時間切れ！${currentPlayer.name}さんのターンはスキップされ、次のプレイヤーへ移動します。`);
         broadcastRoomState(roomId);
@@ -232,7 +252,6 @@ function nextTurn(roomId) {
   room.turnLocked = false;
   broadcastRoomState(roomId);
 
-  // 次のターンのプレイヤー個人に「あなたの番です！」通知を送信
   const nextPlayer = room.players[room.turnIndex];
   if (nextPlayer) {
     io.to(nextPlayer.id).emit('yourTurnNotice', {
@@ -260,8 +279,9 @@ function executeSpin(roomId, playerId) {
   setTimeout(() => {
     if (!rooms[roomId]) return;
 
+    // ゴール済みボーナスターン：出た目 × $200
     if (player.finished) {
-      const bonus = result * 100;
+      const bonus = result * 200;
       player.money += bonus;
       sendSystemChat(roomId, `🌟 ゴール済みボーナス！${player.name}さんは「${result}」を出し、$${bonus.toLocaleString()}獲得しました！`);
       broadcastRoomState(roomId);
@@ -338,7 +358,7 @@ function handleTileLanding(roomId, player) {
     setTimeout(() => nextTurn(roomId), 1200);
 
   } else if (tile.type === 'MINUS') {
-    player.money = Math.max(0, player.money - tile.amount);
+    player.money -= tile.amount;
     sendSystemChat(roomId, `${player.name}さんが$${tile.amount.toLocaleString()}失いました…。`);
     broadcastRoomState(roomId);
     setTimeout(() => nextTurn(roomId), 1200);
@@ -351,17 +371,28 @@ function handleTileLanding(roomId, player) {
     setTimeout(() => nextTurn(roomId), 1400);
 
   } else if (tile.type === 'MARRIAGE') {
-    const gift = player.married ? 3000 : 10000;
-    const msg = player.married ? '結婚記念日のお祝い！' : 'ご結婚おめでとうございます！';
-    player.married = true;
-    player.money += gift;
-    sendSystemChat(roomId, `💒 ${msg}${player.name}さんがご祝儀$${gift.toLocaleString()}を獲得！`);
-    broadcastRoomState(roomId);
-    showResultBannerAndProceed(roomId, {
-      title: '💒 HAPPY WEDDING!',
-      subtitle: `${player.name}さんが結婚！+$${gift.toLocaleString()}`,
-      theme: 'win'
-    }, () => nextTurn(roomId));
+    if (Math.random() < 0.10) {
+      player.money -= 10000;
+      sendSystemChat(roomId, `💔 結婚失敗…！${player.name}さんは破談・キャンセル料で$10,000失いました…。`);
+      broadcastRoomState(roomId);
+      showResultBannerAndProceed(roomId, {
+        title: '💔 結婚失敗…！',
+        subtitle: `${player.name}さんは破談になり -$10,000 失いました…`,
+        theme: 'lose'
+      }, () => nextTurn(roomId));
+    } else {
+      const gift = player.married ? 3000 : 10000;
+      const msg = player.married ? '結婚記念日のお祝い！' : 'ご結婚おめでとうございます！';
+      player.married = true;
+      player.money += gift;
+      sendSystemChat(roomId, `💒 ${msg}${player.name}さんがご祝儀$${gift.toLocaleString()}を獲得！`);
+      broadcastRoomState(roomId);
+      showResultBannerAndProceed(roomId, {
+        title: '💒 HAPPY WEDDING!',
+        subtitle: `${player.name}さんが結婚！+$${gift.toLocaleString()}`,
+        theme: 'win'
+      }, () => nextTurn(roomId));
+    }
 
   } else if (tile.type === 'BABY') {
     player.childrenCount++;
@@ -456,10 +487,12 @@ async function finishGame(roomId) {
       color: p.color,
       job: p.job.currentName,
       cash: p.money,
+      formattedCash: formatMoney(p.money),
       propertyCount: p.properties.length,
       propertyValue: propertyTotal,
       familyBonus,
-      totalAssets
+      totalAssets,
+      formattedTotal: formatMoney(totalAssets)
     };
   });
 
@@ -562,7 +595,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // クイズ難易度変更（EASY / NORMAL / HARD）
   socket.on('changeQuizDifficulty', (difficulty) => {
     const room = rooms[socket.roomId];
     if (!room || room.status !== 'LOBBY') return;
@@ -666,7 +698,6 @@ io.on('connection', (socket) => {
         sendSystemChat(room.id, `🎮 全員の職業が決定！最初は${firstPlayer.name}さんのターンです！`);
         broadcastRoomState(room.id);
 
-        // 最初のプレイヤーにも「あなたの番です！」通知
         if (firstPlayer) {
           io.to(firstPlayer.id).emit('yourTurnNotice', { isGoalBonus: false });
         }
@@ -712,7 +743,7 @@ io.on('connection', (socket) => {
             theme: 'win'
           }, () => nextTurn(room.id));
         } else {
-          player.money = Math.max(0, player.money - 8000);
+          player.money -= 8000;
           sendSystemChat(room.id, `😱 失敗…${player.name}さんは勝負ルートで$8,000失いました。`);
           broadcastRoomState(room.id);
           showResultBannerAndProceed(room.id, {
@@ -724,23 +755,24 @@ io.on('connection', (socket) => {
       }
     } else if (tile.type === 'QUIZ' && player.pendingEvent) {
       const { quiz, amount } = player.pendingEvent;
+      const correctAnswerText = quiz.options[quiz.ans];
       if (choice === quiz.ans) {
         player.money += amount;
-        sendSystemChat(room.id, `⭕ クイズ正解！${player.name}さんが$${amount.toLocaleString()}獲得しました！`);
+        sendSystemChat(room.id, `⭕ クイズ正解！答えは「${correctAnswerText}」！${player.name}さんが$${amount.toLocaleString()}獲得しました！`);
         broadcastRoomState(room.id);
         showResultBannerAndProceed(room.id, {
-          title: '⭕ クイズ大正解！',
-          subtitle: `${player.name}さんが +$${amount.toLocaleString()} 獲得！`,
+          title: '⭕ 正解しました！',
+          subtitle: `答えは「${correctAnswerText}」！（+$${amount.toLocaleString()}）`,
           theme: 'win'
         }, () => nextTurn(room.id));
       } else {
         const loss = Math.floor(amount / 2);
-        player.money = Math.max(0, player.money - loss);
-        sendSystemChat(room.id, `❌ クイズ不正解…${player.name}さんが$${loss.toLocaleString()}失いました。`);
+        player.money -= loss;
+        sendSystemChat(room.id, `❌ クイズ不正解…正解は「${correctAnswerText}」でした。${player.name}さんが$${loss.toLocaleString()}失いました。`);
         broadcastRoomState(room.id);
         showResultBannerAndProceed(room.id, {
           title: '❌ クイズ不正解…',
-          subtitle: `正解は「${quiz.options[quiz.ans]}」でした (-$${loss.toLocaleString()})`,
+          subtitle: `正解は「${correctAnswerText}」でした (-$${loss.toLocaleString()})`,
           theme: 'lose'
         }, () => nextTurn(room.id));
       }
@@ -772,7 +804,7 @@ io.on('connection', (socket) => {
           theme: 'win'
         }, () => nextTurn(room.id));
       } else {
-        player.money = Math.max(0, player.money - loseAmount);
+        player.money -= loseAmount;
         sendSystemChat(room.id, `😭 じゃんけん敗北…（CPU:${hands[cpuHand]}）${player.name}さんが$${loseAmount.toLocaleString()}失いました。`);
         broadcastRoomState(room.id);
         showResultBannerAndProceed(room.id, {

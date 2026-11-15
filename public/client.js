@@ -227,13 +227,12 @@ function renderGameBoard(state) {
         </div>
         <span class="p-badge">${p.finished ? 'GOAL済' : `P${idx + 1}`}</span>
       </div>
-      <div class="p-money">${p.displayMoney}</div>
+      <div class="p-money ${p.isNegative ? 'negative' : ''}">${p.displayMoney}</div>
       <div class="p-sub">物件:${p.properties.length} / 家族:${p.married ? '既婚' : '独身'}${p.childrenCount > 0 ? `(子${p.childrenCount})` : ''}</div>
     `;
     statusBar.appendChild(div);
   });
 
-  // ターン表示＆自分のターンバッジ強調
   const turnLabel = document.getElementById('current-turn-label');
   const turnPanelBox = document.getElementById('turn-panel-box');
   const myTurnBadge = document.getElementById('my-turn-badge');
@@ -426,10 +425,10 @@ socket.on('gameFinished', ({ results, isAutoMatch }) => {
     item.innerHTML = `
       <div>
         <strong>第${actualRank}位：${escapeHtml(r.name)}</strong>（${r.job}）<br>
-        <small>所持金 $${r.cash.toLocaleString()} ＋ 物件 $${r.propertyValue.toLocaleString()} ＋ 家族 $${r.familyBonus.toLocaleString()}</small>
+        <small>所持金 ${r.formattedCash} ＋ 物件 $${r.propertyValue.toLocaleString()} ＋ 家族 $${r.familyBonus.toLocaleString()}</small>
       </div>
-      <div style="font-size:1.2rem; font-weight:bold; color:#27ae60;">
-        $${r.totalAssets.toLocaleString()}
+      <div style="font-size:1.2rem; font-weight:bold; color:${r.totalAssets < 0 ? '#c0392b' : '#27ae60'};">
+        ${r.formattedTotal}
       </div>
     `;
     container.prepend(item);

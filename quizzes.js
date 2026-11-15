@@ -159,13 +159,11 @@ const HARD_BASE = [
   { q: '日本三名園に含まれないものはどれ？', options: ['兼六園', '後楽園', '栗林公園'], ans: 2 }
 ];
 
-// 各難易度で200問ずつ構築するジェネレータ（ベース問題＋計算・知識バリエーション）
 function build200Quizzes(level) {
   const list = [];
 
   if (level === 'EASY') {
     list.push(...EASY_BASE);
-    // 残りをイージーレベルの一般常識・計算・漢字読み・地理問題で200問まで拡充
     const extraEasy = [
       ['「水曜日」の次の曜日は？', ['火曜日', '木曜日', '金曜日'], 1],
       ['「10月」の次の月は？', ['9月', '11月', '12月'], 1],
@@ -271,7 +269,6 @@ function build200Quizzes(level) {
       n++;
     }
   } else {
-    // HARD
     list.push(...HARD_BASE);
     const elements = [
       ['H', '水素'], ['He', 'ヘリウム'], ['Li', 'リチウム'], ['C', '炭素'], ['N', '窒素'],
