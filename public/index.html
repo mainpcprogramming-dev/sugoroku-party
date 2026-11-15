@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>オンライン人生スゴロク</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 1. ロビー画面 -->
+  <div id="lobby-screen" class="screen active">
+    <div class="card lobby-card">
+      <h1>🎲 オンライン人生スゴロク</h1>
+      <div class="input-group">
+        <label>プレイヤー名</label>
+        <input type="text" id="username-input" placeholder="名前を入力（例：たろう）" maxlength="12">
+      </div>
+
+      <div class="lobby-actions">
+        <button id="btn-create-room" class="btn primary">部屋を作成（Party・人数無制限）</button>
+        
+        <div class="join-box">
+          <input type="text" id="room-code-input" placeholder="4桁の部屋番号" maxlength="4">
+          <button id="btn-join-room" class="btn secondary">部屋に参加</button>
+        </div>
+
+        <button id="btn-auto-match" class="btn accent">オンライン対戦（4人自動マッチング）</button>
+      </div>
+      <p id="lobby-status" class="status-text"></p>
+      <button id="btn-cancel-match" class="btn danger hidden">マッチングをキャンセル</button>
+    </div>
+  </div>
+
+  <!-- 2. 部屋待機・設定画面 -->
+  <div id="waiting-screen" class="screen">
+    <div class="card waiting-card">
+      <div class="room-header">
+        <h2>部屋番号: <span id="display-room-id" class="highlight-code">----</span></h2>
+        <button id="btn-leave-room" class="btn small danger">ロビーに戻る</button>
+      </div>
+
+      <div id="host-controls" class="settings-panel">
+        <div class="setting-item">
+          <label>制限時間（10〜90秒）:</label>
+          <select id="time-limit-select" disabled>
+            <option value="10">10秒</option>
+            <option value="20">20秒</option>
+            <option value="30" selected>30秒</option>
+            <option value="40">40秒</option>
+            <option value="50">50秒</option>
+            <option value="60">60秒</option>
+            <option value="70">70秒</option>
+            <option value="80">80秒</option>
+            <option value="90">90秒</option>
+          </select>
+        </div>
+        <button id="btn-shuffle" class="btn small secondary hidden">順番シャッフル</button>
+      </div>
+
+      <div class="player-list-container">
+        <h3>参加プレイヤー（全員が緑色の「準備OK」で開始可能）</h3>
+        <ul id="waiting-player-list" class="player-list"></ul>
+      </div>
+
+      <div class="waiting-footer">
+        <button id="btn-ready" class="btn ready-btn not-ready">準備中（クリックで準備OK）</button>
+        <div id="host-start-buttons" class="hidden">
+          <button id="btn-start-game" class="btn primary">スタート</button>
+          <button id="btn-force-start" class="btn danger">強制スタート</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- カウントダウンオーバーレイ -->
+  <div id="countdown-overlay" class="overlay hidden">
+    <div id="countdown-number" class="countdown-text">3</div>
+  </div>
+
+  <!-- 3. メインゲーム画面 -->
+  <div id="game-screen" class="screen">
+    <!-- 上部：全プレイヤーのステータスバー（役職・所持金） -->
+    <header id="players-status-bar" class="status-bar"></header>
+
+    <div class="game-main-layout">
+      <!-- 左側：スゴロク盤面 -->
+      <section class="board-container">
+        <div id="board-grid" class="board-grid"></div>
+      </section>
+
+      <!-- 右側：リアルタイム操作パネル＆チャット -->
+      <aside class="side-panel">
+        <div class="turn-panel card">
+          <div class="turn-header">
+            <span id="current-turn-label">〇〇さんのターン</span>
+            <span id="turn-timer" class="timer-badge">30s</span>
+          </div>
+
+          <!-- 全員にリアルタイム同期される高速ルーレット -->
+          <div class="roulette-box">
+            <div id="roulette-display" class="roulette-number">1</div>
+            <button id="btn-spin" class="btn primary spin-btn" disabled>ルーレットを回す！</button>
+          </div>
+        </div>
+
+        <!-- リアルタイムチャット＆システムログ -->
+        <div class="chat-panel card">
+          <div id="chat-messages" class="chat-messages"></div>
+          <form id="chat-form" class="chat-form">
+            <input type="text" id="chat-input" placeholder="メッセージを入力..." autocomplete="off">
+            <button type="submit" class="btn small primary">送信</button>
+          </form>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- インタラクティブイベントモーダル（クイズ・じゃんけん・分岐・物件） -->
+  <div id="event-modal" class="overlay hidden">
+    <div class="card modal-card">
+      <h3 id="event-title">イベント発生！</h3>
+      <p id="event-desc"></p>
+      <div id="event-choices" class="event-choices"></div>
+      <p id="event-waiting-msg" class="status-text hidden">対象プレイヤーが選択中です...</p>
+    </div>
+  </div>
+
+  <!-- 4. 総決算＆ドキドキランキング画面 -->
+  <div id="result-screen" class="screen">
+    <div class="card result-card">
+      <h1>🏆 人生の総決算＆最終ランキング 🏆</h1>
+      <p class="subtitle">所持金 ＋ 物件売却額 ＝ 総資産で最終順位が決定！</p>
+      <div id="ranking-container" class="ranking-list"></div>
+
+      <!-- Partyモード用ボタン -->
+      <div id="party-end-actions" class="end-actions hidden">
+        <button id="btn-back-to-room" class="btn primary">部屋設定画面に戻る</button>
+      </div>
+
+      <!-- オンライン対戦用ボタン -->
+      <div id="automatch-end-actions" class="end-actions hidden">
+        <button id="btn-rematch" class="btn primary">もう一度対戦する</button>
+        <button id="btn-cancel-rematch" class="btn danger">ロビーに戻る</button>
+        <p id="rematch-status" class="status-text"></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
