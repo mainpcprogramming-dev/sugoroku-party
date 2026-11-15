@@ -98,27 +98,57 @@ function shuffleArray(arr) {
   return arr;
 }
 
-// ランダム盤面生成（全種マス最低1個保証 + 下克上マス1個 + お宝マス2〜3個 + 強制ストップマス2個）
-function generateBoard() {
-  const totalTiles = 48;
+// ランダム盤面生成（goalTile: 45〜100、goalTile番目のマスがGOAL!になる）
+function generateBoard(goalTile = 50) {
+  const safeGoal = Math.max(45, Math.min(100, Number(goalTile) || 50));
   const fixedMap = {};
 
-  // 1. 強制ストップマス（3種からランダム2種を各1マス＝計2マス）
-  const stopCandidates = shuffleArray([
-    { type: 'PAYDAY', label: '給料日(STOP)', desc: '必ずストップ！お給料をもらう', stop: true },
-    { type: 'MARRIAGE', label: '結婚(STOP)', desc: '人生の節目！ご祝儀か破談か…', stop: true },
-    { type: 'BRANCH', label: '人生の分岐(STOP)', desc: '堅実ルートか勝負ルートか選択！', stop: true }
-  ]);
-  fixedMap[16] = { ...stopCandidates[0] };
-  fixedMap[32] = { ...stopCandidates[1] };
+  // マス数に応じたSTOPマス数・物件マス数の決定
+  // 45〜55: STOP 3個 / 物件 4個
+  // 56〜70: STOP 4個 / 物件 5個
+  // 71〜100: STOP 5個 / 物件 6個
+  let stopCount = 3;
+  let minPropertyCount = 4;
+  if (safeGoal > 70) {
+    stopCount = 5;
+    minPropertyCount = 6;
+  } else if (safeGoal > 55) {
+    stopCount = 4;
+    minPropertyCount = 5;
+  }
 
+  // 1. 強制ストップマス（最低1個は給料日、残りは結婚・分岐・給料日から構成）
+  const stopPool = [
+    { type: 'PAYDAY', label: '給料日(STOP)', desc: '必ずストップ！お給料をもらう', stop: true }
+  ];
+  const extraStopTemplates = [
+    { type: 'MARRIAGE', label: '結婚(STOP)', desc: '人生の節目！ご祝儀か破談か…', stop: true },
+    { type: 'BRANCH', label: '人生の分岐(STOP)', desc: '堅実ルートか勝負ルートか選択！', stop: true },
+    { type: 'PAYDAY', label: '給料日(STOP)', desc: '必ずストップ！お給料をもらう', stop: true },
+    { type: 'MARRIAGE', label: '結婚(STOP)', desc: '人生の節目！ご祝儀か破談か…', stop: true }
+  ];
+  shuffleArray(extraStopTemplates);
+  for (let i = 0; i < stopCount - 1; i++) {
+    stopPool.push({ ...extraStopTemplates[i % extraStopTemplates.length] });
+  }
+  shuffleArray(stopPool);
+
+  // STOPマスをマップ全体に均等間隔で配置
+  for (let i = 0; i < stopCount; i++) {
+    const pos = Math.round((safeGoal * (i + 1)) / (stopCount + 1));
+    fixedMap[pos] = stopPool[i];
+  }
+
+  // 空きマスリスト（1 〜 safeGoal - 1）
   const freeIndices = [];
-  for (let i = 1; i < totalTiles - 1; i++) {
+  for (let i = 1; i < safeGoal; i++) {
     if (!fixedMap[i]) freeIndices.push(i);
   }
 
-  // 2. 下克上マス（終盤 34〜45 の間に1マス必ず配置）
-  const comebackCandidates = freeIndices.filter(idx => idx >= 34 && idx <= 45);
+  // 2. 下克上マス（終盤70%〜95%の区間に1マス配置）
+  const comebackMin = Math.floor(safeGoal * 0.70);
+  const comebackMax = safeGoal - 2;
+  const comebackCandidates = freeIndices.filter(idx => idx >= comebackMin && idx <= comebackMax);
   const comebackPos = comebackCandidates[Math.floor(Math.random() * comebackCandidates.length)];
   fixedMap[comebackPos] = {
     type: 'COMEBACK',
@@ -130,12 +160,12 @@ function generateBoard() {
 
   // 3. お宝マス（2〜3個必ず配置）
   const treasureCount = Math.random() < 0.5 ? 2 : 3;
-  for (let k = 0; k < treasureCount; k++) {
+  for (let k = 0; k < treasureCount && remainingIndices.length > 0; k++) {
     const pos = remainingIndices.pop();
     fixedMap[pos] = { type: 'TREASURE', label: '💎お宝マス', desc: 'お宝ルーレットでお宝ゲット！' };
   }
 
-  // 4. 全基本・イベントマス種別を必ず最低1個保証
+  // 4. 必須個数の保証リスト作成
   const guaranteedTypes = [
     'NORMAL',
     'PLUS',
@@ -147,9 +177,18 @@ function generateBoard() {
     'MINUS_ROULETTE',
     'MYSTERY',
     'BABY',
-    'RANKUP',
-    'PROPERTY'
+    'RANKUP'
   ];
+
+  // 物件購入マスを最低必要個数（4〜6個）追加
+  for (let p = 0; p < minPropertyCount; p++) {
+    guaranteedTypes.push('PROPERTY');
+  }
+
+  // 体調不良マスを最低3個追加
+  for (let s = 0; s < 3; s++) {
+    guaranteedTypes.push('SICK');
+  }
 
   const weightedPool = [
     'NORMAL', 'NORMAL',
@@ -161,9 +200,10 @@ function generateBoard() {
     'DICE_MINIGAME', 'DICE_MINIGAME',
     'MINUS_ROULETTE', 'MINUS_ROULETTE',
     'MYSTERY', 'MYSTERY', 'MYSTERY',
+    'SICK', 'SICK',
     'BABY', 'BABY',
     'RANKUP', 'RANKUP',
-    'PROPERTY', 'PROPERTY', 'PROPERTY'
+    'PROPERTY', 'PROPERTY'
   ];
 
   const allTypesToPlace = [...guaranteedTypes];
@@ -188,6 +228,8 @@ function generateBoard() {
         const val = baseAmount * (Math.floor(Math.random() * 2) + 1);
         return { index, type: 'MINUS', label: `-$${val}`, amount: val, desc: `思わぬ出費…$${val}失う` };
       }
+      case 'SICK':
+        return { index, type: 'SICK', label: '🤒体調不良', desc: '体調を崩してしまった…次のターンはお休み！' };
       case 'QUIZ': {
         const val = baseAmount * 3;
         return { index, type: 'QUIZ', label: 'クイズ', amount: val, desc: `正解で+$${val} / 不正解で-$${Math.floor(val / 2)}` };
@@ -216,7 +258,8 @@ function generateBoard() {
         return { index, type: 'RANKUP', label: '職業昇進', desc: '仕事が評価され職業ランクアップ！' };
       case 'PROPERTY':
       default: {
-        const prop = PROPERTIES[Math.min(PROPERTIES.length - 1, Math.floor(index / 10))];
+        const propIdx = Math.min(PROPERTIES.length - 1, Math.floor((index / safeGoal) * PROPERTIES.length));
+        const prop = PROPERTIES[propIdx];
         return { index, type: 'PROPERTY', label: '物件購入', property: prop };
       }
     }
@@ -227,10 +270,10 @@ function generateBoard() {
   });
 
   const board = [];
-  for (let i = 0; i < totalTiles; i++) {
+  for (let i = 0; i <= safeGoal; i++) {
     if (i === 0) {
       board.push({ index: i, type: 'START', label: 'START', desc: '人生の始まり！' });
-    } else if (i === totalTiles - 1) {
+    } else if (i === safeGoal) {
       board.push({ index: i, type: 'GOAL', label: 'GOAL!', desc: '人生のゴール！' });
     } else {
       board.push({ index: i, ...fixedMap[i] });
@@ -258,6 +301,7 @@ function createRoomState(roomId, isAutoMatch = false) {
     status: 'LOBBY',
     timeLimit: 30,
     quizDifficulty: 'NORMAL',
+    goalTile: 50,
     usedQuizIndices: new Set(),
     players: [],
     board: [],
@@ -286,6 +330,7 @@ function broadcastRoomState(roomId) {
     status: room.status,
     timeLimit: room.timeLimit,
     quizDifficulty: room.quizDifficulty,
+    goalTile: room.goalTile,
     players: sanitizedPlayers,
     board: room.board,
     turnIndex: room.turnIndex,
@@ -350,10 +395,21 @@ function nextTurn(roomId) {
   }
 
   room.turnIndex = (room.turnIndex + 1) % room.players.length;
+  const nextPlayer = room.players[room.turnIndex];
+
+  // 🤒 体調不良による1回休みチェック
+  if (nextPlayer && !nextPlayer.finished && nextPlayer.skipTurns > 0) {
+    nextPlayer.skipTurns--;
+    room.turnLocked = true;
+    sendSystemChat(roomId, `🤒 ${nextPlayer.name}さんは体調不良のため、このターンはお休み（スキップ）です！`);
+    broadcastRoomState(roomId);
+    setTimeout(() => nextTurn(roomId), 1600);
+    return;
+  }
+
   room.turnLocked = false;
   broadcastRoomState(roomId);
 
-  const nextPlayer = room.players[room.turnIndex];
   if (nextPlayer) {
     io.to(nextPlayer.id).emit('yourTurnNotice', {
       isGoalBonus: nextPlayer.finished
@@ -381,7 +437,6 @@ function executeSpin(roomId, playerId) {
     if (!rooms[roomId]) return;
 
     if (player.finished) {
-      // ゴールボーナス：出た目 × $500
       const bonus = result * 500;
       player.money += bonus;
       sendSystemChat(roomId, `🌟 ゴール済みボーナス！${player.name}さんは「${result}」を出し、$${bonus.toLocaleString()}獲得しました！`);
@@ -442,7 +497,6 @@ function handleGoal(roomId, player) {
   setTimeout(() => nextTurn(roomId), 1500);
 }
 
-// 全員参加ダイスバトルの賞金分配計算
 function calculateDicePrizes(playerCount, entryFee) {
   const poolTotal = playerCount * entryFee;
   if (playerCount === 2) return [4500, 1500];
@@ -529,6 +583,16 @@ function handleTileLanding(roomId, player) {
     sendSystemChat(roomId, `${player.name}さんが$${tile.amount.toLocaleString()}失いました…。`);
     broadcastRoomState(roomId);
     setTimeout(() => nextTurn(roomId), 1200);
+
+  } else if (tile.type === 'SICK') {
+    player.skipTurns = (player.skipTurns || 0) + 1;
+    sendSystemChat(roomId, `🤒 体調不良！${player.name}さんは風邪を引いてしまった…次のターンは1回休みになります。`);
+    broadcastRoomState(roomId);
+    showResultBannerAndProceed(roomId, {
+      title: '🤒 体調不良…',
+      subtitle: `${player.name}さんは次のターン1回休みになります`,
+      theme: 'lose'
+    }, () => nextTurn(roomId));
 
   } else if (tile.type === 'PAYDAY') {
     const pay = player.job.currentSalary;
@@ -618,7 +682,6 @@ function handleTileLanding(roomId, player) {
     }
 
   } else if (tile.type === 'MINUS_ROULETTE') {
-    // 💀 道連れルーレット（ステップ1：マイナス金額決定 → ステップ2：ターゲット決定）
     player.pendingEvent = { type: 'MINUS_ROULETTE', step: 'AMOUNT', chosenAmount: 0 };
     io.to(roomId).emit('startMinusRoulette', {
       actorId: String(player.id),
@@ -826,6 +889,7 @@ io.on('connection', (socket) => {
       const matched = autoMatchQueue.splice(0, 4);
       const roomId = generateRoomCode();
       const room = createRoomState(roomId, true);
+      room.goalTile = 50; // オンライン対戦は50マス固定
       rooms[roomId] = room;
 
       matched.forEach((m, idx) => {
@@ -876,6 +940,18 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ゴールマス設定変更（45〜100マス）
+  socket.on('changeGoalTile', (newGoal) => {
+    const room = rooms[socket.roomId];
+    if (!room || room.status !== 'LOBBY' || room.isAutoMatch) return;
+    const player = room.players.find(p => p.id === socket.id);
+    const val = Number(newGoal);
+    if (player && player.isHost && val >= 45 && val <= 100) {
+      room.goalTile = val;
+      broadcastRoomState(room.id);
+    }
+  });
+
   socket.on('shufflePlayers', () => {
     const room = rooms[socket.roomId];
     if (!room || room.status !== 'LOBBY') return;
@@ -902,8 +978,9 @@ io.on('connection', (socket) => {
   function startGameSequence(roomId) {
     const room = rooms[roomId];
     if (!room) return;
+    const targetGoal = room.isAutoMatch ? 50 : (room.goalTile || 50);
     room.status = 'COUNTDOWN';
-    room.board = generateBoard();
+    room.board = generateBoard(targetGoal);
     room.turnIndex = 0;
     room.turnLocked = false;
     room.goalOrder = [];
@@ -921,6 +998,7 @@ io.on('connection', (socket) => {
       p.treasures = [];
       p.married = false;
       p.childrenCount = 0;
+      p.skipTurns = 0;
       p.finished = false;
     });
 
@@ -983,7 +1061,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 💀 マイナスルーレット（ステップ1：金額決定 → ステップ2：ターゲットプレイヤー決定）
+  // 💀 マイナスルーレット
   socket.on('stopMinusRoulette', () => {
     const room = rooms[socket.roomId];
     if (!room || room.status !== 'PLAYING') return;
@@ -1050,9 +1128,9 @@ io.on('connection', (socket) => {
     });
 
     if (picked.amount > 0) {
-      sendSystemChat(room.id, `❓ ？？？マス結果：大当たり！${player.name}さんが ${picked.label} 獲得しました！`);
+      sendSystemChat(room.id, `❓ ？？？結果：大当たり！${player.name}さんが ${picked.label} 獲得しました！`);
     } else {
-      sendSystemChat(room.id, `❓ ？？？マス結果：ハズレ…${player.name}さんが ${picked.label} 失いました…。`);
+      sendSystemChat(room.id, `❓ ？？？結果：ハズレ…${player.name}さんが ${picked.label} 失いました…。`);
     }
     broadcastRoomState(room.id);
 
@@ -1347,6 +1425,7 @@ io.on('connection', (socket) => {
       treasures: [],
       married: false,
       childrenCount: 0,
+      skipTurns: 0,
       finished: false
     };
   }

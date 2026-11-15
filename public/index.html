@@ -24,7 +24,7 @@
           <button id="btn-join-room" class="btn secondary">部屋に参加</button>
         </div>
 
-        <button id="btn-auto-match" class="btn accent">オンライン対戦（4人自動マッチング）</button>
+        <button id="btn-auto-match" class="btn accent">オンライン対戦（4人自動マッチング・50マス固定）</button>
       </div>
       <p id="lobby-status" class="status-text"></p>
       <button id="btn-cancel-match" class="btn danger hidden">マッチングをキャンセル</button>
@@ -56,11 +56,29 @@
         </div>
 
         <div class="setting-item">
-          <label>クイズ難易度:</label>
+          <label>クイズ:</label>
           <select id="quiz-difficulty-select" disabled>
             <option value="EASY">イージー</option>
             <option value="NORMAL" selected>ノーマル</option>
             <option value="HARD">ハード</option>
+          </select>
+        </div>
+
+        <div class="setting-item">
+          <label>ゴールマス:</label>
+          <select id="goal-tile-select" disabled>
+            <option value="45">45マス</option>
+            <option value="50" selected>50マス</option>
+            <option value="55">55マス</option>
+            <option value="60">60マス</option>
+            <option value="65">65マス</option>
+            <option value="70">70マス</option>
+            <option value="75">75マス</option>
+            <option value="80">80マス</option>
+            <option value="85">85マス</option>
+            <option value="90">90マス</option>
+            <option value="95">95マス</option>
+            <option value="100">100マス</option>
           </select>
         </div>
 

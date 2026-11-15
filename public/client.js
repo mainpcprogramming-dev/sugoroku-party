@@ -65,6 +65,7 @@ document.getElementById('btn-leave-room').onclick = () => {
 document.getElementById('btn-ready').onclick = () => socket.emit('toggleReady');
 document.getElementById('time-limit-select').onchange = (e) => socket.emit('changeTimeLimit', Number(e.target.value));
 document.getElementById('quiz-difficulty-select').onchange = (e) => socket.emit('changeQuizDifficulty', e.target.value);
+document.getElementById('goal-tile-select').onchange = (e) => socket.emit('changeGoalTile', Number(e.target.value));
 document.getElementById('btn-shuffle').onclick = () => socket.emit('shufflePlayers');
 document.getElementById('btn-start-game').onclick = () => socket.emit('startGame', { force: false });
 document.getElementById('btn-force-start').onclick = () => socket.emit('startGame', { force: true });
@@ -82,6 +83,9 @@ socket.on('roomStateUpdate', (state) => {
 
     document.getElementById('quiz-difficulty-select').value = state.quizDifficulty || 'NORMAL';
     document.getElementById('quiz-difficulty-select').disabled = !me.isHost;
+
+    document.getElementById('goal-tile-select').value = state.goalTile || 50;
+    document.getElementById('goal-tile-select').disabled = !me.isHost || state.isAutoMatch;
 
     if (me.isHost) {
       document.getElementById('btn-shuffle').classList.remove('hidden');
@@ -614,13 +618,15 @@ function renderGameBoard(state) {
     div.className = `player-card ${idx === state.turnIndex ? 'active-turn' : ''}`;
     div.style.borderLeftColor = p.color;
 
+    const statusBadge = p.finished ? 'GOAL済' : (p.skipTurns > 0 ? '🤒休み中' : `P${idx + 1}`);
+
     div.innerHTML = `
       <div class="p-header">
         <div style="display:flex; align-items:center; gap:5px; overflow:hidden;">
           <span class="p-name-tag" style="background:${p.color}">${escapeHtml(p.name)}</span>
           <span class="p-job">「${p.job.currentName}」</span>
         </div>
-        <span class="p-badge">${p.finished ? 'GOAL済' : `P${idx + 1}`}</span>
+        <span class="p-badge">${statusBadge}</span>
       </div>
       <div class="p-money ${p.isNegative ? 'negative' : ''}">${p.displayMoney}</div>
       <div class="p-sub">物件:${p.properties.length} / お宝:${p.treasures.length} / ${p.married ? '既婚' : '独身'}${p.childrenCount > 0 ? `(子${p.childrenCount})` : ''}</div>
