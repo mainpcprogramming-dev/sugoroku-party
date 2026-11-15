@@ -57,6 +57,17 @@ const PROPERTIES = [
   { id: 'p5', name: '宇宙旅行ツアー会社', price: 40000, sellValue: 75000 }
 ];
 
+const TREASURES = [
+  { name: '🏺 古びた壺', value: 3000 },
+  { name: '🪙 古代の金貨', value: 6000 },
+  { name: '💍 サファイアの指輪', value: 10000 },
+  { name: '🗡️ 黄金の短剣', value: 14000 },
+  { name: '🖼️ 名画のレプリカ', value: 18000 },
+  { name: '💎 大粒ダイヤモンド', value: 24000 },
+  { name: '🐉 秘宝・龍の玉', value: 30000 },
+  { name: '👑 伝説の王冠', value: 38000 }
+];
+
 const rooms = {};
 let autoMatchQueue = [];
 
@@ -67,11 +78,12 @@ function formatMoney(amount) {
   return `$${amount.toLocaleString()}`;
 }
 
-// ランダム盤面生成（強制ストップマス：3候補からランダムに選ばれた2種類を各1マス＝計2マス配置）
+// ランダム盤面生成
 function generateBoard() {
   const board = [];
   const totalTiles = 48;
 
+  // 1. 強制ストップマス（3種からランダム2種を各1マス＝計2マス）
   const stopCandidates = [
     { type: 'PAYDAY', label: '給料日(STOP)', desc: '必ずストップ！お給料をもらう', stop: true },
     { type: 'MARRIAGE', label: '結婚(STOP)', desc: '人生の節目！ご祝儀か破談か…', stop: true },
@@ -81,18 +93,27 @@ function generateBoard() {
     const j = Math.floor(Math.random() * (i + 1));
     [stopCandidates[i], stopCandidates[j]] = [stopCandidates[j], stopCandidates[i]];
   }
-
-  const stopPool = [
-    { ...stopCandidates[0] },
-    { ...stopCandidates[1] }
-  ];
-
   const stopPositions = [16, 32];
-  const stopMap = {};
-  stopPositions.forEach((pos, idx) => {
-    stopMap[pos] = stopPool[idx];
-  });
+  const fixedMap = {};
+  fixedMap[stopPositions[0]] = { ...stopCandidates[0] };
+  fixedMap[stopPositions[1]] = { ...stopCandidates[1] };
 
+  // 2. お宝マス（1ステージにつき2〜3個をランダム位置に配置）
+  const treasureCount = Math.random() < 0.5 ? 2 : 3;
+  const availableIndices = [];
+  for (let i = 2; i < totalTiles - 2; i++) {
+    if (!fixedMap[i]) availableIndices.push(i);
+  }
+  for (let i = availableIndices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [availableIndices[i], availableIndices[j]] = [availableIndices[j], availableIndices[i]];
+  }
+  for (let k = 0; k < treasureCount; k++) {
+    const pos = availableIndices[k];
+    fixedMap[pos] = { type: 'TREASURE', label: '💎お宝マス', desc: 'お宝ルーレットでお宝ゲット！' };
+  }
+
+  // 3. 残りのマスを生成（マイナスマス少し増加 + クリック連打マス + 全員ダイスミニゲームマス追加）
   for (let i = 0; i < totalTiles; i++) {
     if (i === 0) {
       board.push({ index: i, type: 'START', label: 'START', desc: '人生の始まり！' });
@@ -102,8 +123,8 @@ function generateBoard() {
       board.push({ index: i, type: 'GOAL', label: 'GOAL!', desc: '人生のゴール！' });
       continue;
     }
-    if (stopMap[i]) {
-      board.push({ index: i, ...stopMap[i] });
+    if (fixedMap[i]) {
+      board.push({ index: i, ...fixedMap[i] });
       continue;
     }
 
@@ -111,25 +132,34 @@ function generateBoard() {
     const baseAmount = 1000 * multiplier;
     const rand = Math.random();
 
-    if (rand < 0.16) {
+    if (rand < 0.11) {
       board.push({ index: i, type: 'NORMAL', label: '通常マス', desc: '穏やかな一日。特に何も起きない。' });
-    } else if (rand < 0.36) {
+    } else if (rand < 0.27) {
       const val = baseAmount * (Math.floor(Math.random() * 3) + 1);
       board.push({ index: i, type: 'PLUS', label: `+$${val}`, amount: val, desc: `臨時収入！$${val}ゲット` });
-    } else if (rand < 0.54) {
+    } else if (rand < 0.49) {
+      // マイナスマス割合を少し増加 (22%)
       const val = baseAmount * (Math.floor(Math.random() * 2) + 1);
       board.push({ index: i, type: 'MINUS', label: `-$${val}`, amount: val, desc: `思わぬ出費…$${val}失う` });
-    } else if (rand < 0.66) {
+    } else if (rand < 0.59) {
       const val = baseAmount * 3;
       board.push({ index: i, type: 'QUIZ', label: 'クイズ', amount: val, desc: `正解で+$${val} / 不正解で-$${Math.floor(val / 2)}` });
-    } else if (rand < 0.78) {
+    } else if (rand < 0.69) {
       const winVal = baseAmount * 3;
       const loseVal = Math.floor(winVal / 2);
       board.push({ index: i, type: 'JANKEN', label: 'じゃんけん', winAmount: winVal, loseAmount: loseVal });
-    } else if (rand < 0.86) {
+    } else if (rand < 0.79) {
+      // クリック連打マス
+      const reward = baseAmount * 3;
+      const penalty = Math.floor(reward / 2);
+      board.push({ index: i, type: 'CLICK_GAME', label: '⚡連打挑戦', reward, penalty });
+    } else if (rand < 0.88) {
+      // 全員参加ダイスバトルマス
+      board.push({ index: i, type: 'DICE_MINIGAME', label: '🎲全員勝負', entryFee: 3000 });
+    } else if (rand < 0.93) {
       const val = baseAmount * 2;
       board.push({ index: i, type: 'BABY', label: '出産祝い', amount: val, desc: `赤ちゃん誕生！お祝い金+$${val}` });
-    } else if (rand < 0.93) {
+    } else if (rand < 0.96) {
       board.push({ index: i, type: 'RANKUP', label: '職業昇進', desc: '仕事が評価され職業ランクアップ！' });
     } else {
       const prop = PROPERTIES[Math.min(PROPERTIES.length - 1, Math.floor(i / 10))];
@@ -166,7 +196,8 @@ function createRoomState(roomId, isAutoMatch = false) {
     goalOrder: [],
     turnTimer: null,
     timeLeft: 30,
-    rematchVotes: {}
+    rematchVotes: {},
+    activeMinigame: null
   };
 }
 
@@ -198,7 +229,7 @@ function showResultBannerAndProceed(roomId, bannerData, nextCallback) {
   setTimeout(() => {
     io.to(roomId).emit('hideResultBanner');
     if (nextCallback) nextCallback();
-  }, 1500);
+  }, 1600);
 }
 
 function pickQuizForRoom(room) {
@@ -279,7 +310,6 @@ function executeSpin(roomId, playerId) {
   setTimeout(() => {
     if (!rooms[roomId]) return;
 
-    // ゴール済みボーナスターン：出た目 × $200
     if (player.finished) {
       const bonus = result * 200;
       player.money += bonus;
@@ -339,6 +369,75 @@ function handleGoal(roomId, player) {
   sendSystemChat(roomId, `🎉 ${player.name}さんが${rank}位でゴール！ボーナス$${bonus.toLocaleString()}を獲得！（所持金は結果発表まで？？？になります）`);
   broadcastRoomState(roomId);
   setTimeout(() => nextTurn(roomId), 1500);
+}
+
+// 全員参加ダイスバトルの賞金分配計算
+function calculateDicePrizes(playerCount, entryFee) {
+  const poolTotal = playerCount * entryFee;
+  if (playerCount === 2) return [4500, 1500];
+  if (playerCount === 3) return [6000, 2500, 500];
+  if (playerCount === 4) return [8000, 3000, 1000, 0];
+
+  // 5人以上の場合の比例分配（最下位は0）
+  const weights = [];
+  for (let i = 0; i < playerCount - 1; i++) {
+    weights.push(Math.pow(2, playerCount - 1 - i));
+  }
+  weights.push(0);
+  const weightSum = weights.reduce((a, b) => a + b, 0);
+  const prizes = weights.map(w => Math.floor((poolTotal * w / weightSum) / 100) * 100);
+  const currentSum = prizes.reduce((a, b) => a + b, 0);
+  prizes[0] += (poolTotal - currentSum);
+  return prizes;
+}
+
+function finalizeDiceMinigame(roomId) {
+  const room = rooms[roomId];
+  if (!room || !room.activeMinigame) return;
+  const mg = room.activeMinigame;
+  const prizes = calculateDicePrizes(mg.participants.length, mg.entryFee);
+
+  // 出目降順ソート
+  const sorted = [...mg.participants].sort((a, b) => b.roll - a.roll);
+
+  // 同点順位を考慮して賞金を分配
+  let idx = 0;
+  const resultLines = [];
+  while (idx < sorted.length) {
+    let tieEnd = idx;
+    while (tieEnd + 1 < sorted.length && sorted[tieEnd + 1].roll === sorted[idx].roll) {
+      tieEnd++;
+    }
+    const tieCount = tieEnd - idx + 1;
+    let sharedPrize = 0;
+    for (let k = idx; k <= tieEnd; k++) {
+      sharedPrize += (prizes[k] || 0);
+    }
+    const perPlayerPrize = Math.floor((sharedPrize / tieCount) / 10) * 10;
+    const rankNum = idx + 1;
+
+    for (let k = idx; k <= tieEnd; k++) {
+      const part = sorted[k];
+      const pObj = room.players.find(p => p.id === part.id);
+      if (pObj) {
+        pObj.money += perPlayerPrize;
+      }
+      part.rank = rankNum;
+      part.prize = perPlayerPrize;
+      resultLines.push(`${rankNum}位:${part.name}(出目${part.roll})→+$${perPlayerPrize.toLocaleString()}`);
+    }
+    idx = tieEnd + 1;
+  }
+
+  sendSystemChat(roomId, `🎲 ダイスバトル結果！ ${resultLines.join(' / ')}`);
+  broadcastRoomState(roomId);
+  io.to(roomId).emit('diceMinigameResult', { results: sorted });
+
+  setTimeout(() => {
+    room.activeMinigame = null;
+    io.to(roomId).emit('closeDiceMinigame');
+    nextTurn(roomId);
+  }, 3500);
 }
 
 function handleTileLanding(roomId, player) {
@@ -424,6 +523,65 @@ function handleTileLanding(roomId, player) {
       setTimeout(() => nextTurn(roomId), 1200);
     }
 
+  } else if (tile.type === 'TREASURE') {
+    // お宝ルーレット開始
+    player.pendingEvent = { type: 'TREASURE' };
+    io.to(roomId).emit('startTreasureRoulette', {
+      playerId: player.id,
+      playerName: player.name,
+      treasures: TREASURES.map(t => t.name)
+    });
+
+  } else if (tile.type === 'CLICK_GAME') {
+    // クリック連打チャレンジ（目標回数 40〜60 ランダム）
+    const targetClicks = Math.floor(Math.random() * 21) + 40;
+    player.pendingEvent = {
+      type: 'CLICK_GAME',
+      targetClicks,
+      reward: tile.reward,
+      penalty: tile.penalty
+    };
+    io.to(roomId).emit('startClickChallenge', {
+      playerId: player.id,
+      playerName: player.name,
+      targetClicks,
+      reward: tile.reward,
+      penalty: tile.penalty
+    });
+
+  } else if (tile.type === 'DICE_MINIGAME') {
+    // 全員参加ダイスバトル開始（参加費 $3,000 徴収）
+    const entryFee = tile.entryFee || 3000;
+    room.players.forEach(p => {
+      p.money -= entryFee;
+    });
+    const prizes = calculateDicePrizes(room.players.length, entryFee);
+    sendSystemChat(roomId, `🎲 全員参加ダイスバトル発生！全員から参加費$${entryFee.toLocaleString()}を徴収しました！`);
+    broadcastRoomState(roomId);
+
+    room.activeMinigame = {
+      type: 'DICE_MINIGAME',
+      entryFee,
+      prizes,
+      currentIdx: 0,
+      rolling: false,
+      participants: room.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        color: p.color,
+        roll: null,
+        rank: null,
+        prize: 0
+      }))
+    };
+
+    io.to(roomId).emit('startDiceMinigame', {
+      entryFee,
+      prizes,
+      participants: room.activeMinigame.participants,
+      currentRollerId: room.activeMinigame.participants[0].id
+    });
+
   } else if (tile.type === 'BRANCH') {
     io.to(roomId).emit('interactiveEvent', {
       type: 'BRANCH',
@@ -479,8 +637,9 @@ async function finishGame(roomId) {
 
   const results = room.players.map(p => {
     const propertyTotal = p.properties.reduce((sum, prop) => sum + prop.sellValue, 0);
+    const treasureTotal = p.treasures.reduce((sum, t) => sum + t.value, 0);
     const familyBonus = (p.married ? 5000 : 0) + (p.childrenCount * 4000);
-    const totalAssets = p.money + propertyTotal + familyBonus;
+    const totalAssets = p.money + propertyTotal + treasureTotal + familyBonus;
     return {
       id: p.id,
       name: p.name,
@@ -490,6 +649,8 @@ async function finishGame(roomId) {
       formattedCash: formatMoney(p.money),
       propertyCount: p.properties.length,
       propertyValue: propertyTotal,
+      treasureCount: p.treasures.length,
+      treasureValue: treasureTotal,
       familyBonus,
       totalAssets,
       formattedTotal: formatMoney(totalAssets)
@@ -640,6 +801,7 @@ io.on('connection', (socket) => {
     room.turnLocked = false;
     room.goalOrder = [];
     room.rematchVotes = {};
+    room.activeMinigame = null;
     room.usedQuizIndices.clear();
 
     room.players.forEach((p, idx) => {
@@ -649,6 +811,7 @@ io.on('connection', (socket) => {
       p.money = 5000;
       p.position = 0;
       p.properties = [];
+      p.treasures = [];
       p.married = false;
       p.childrenCount = 0;
       p.finished = false;
@@ -711,6 +874,104 @@ io.on('connection', (socket) => {
     if (socket.roomId) {
       executeSpin(socket.roomId, socket.id);
     }
+  });
+
+  // お宝ルーレット停止
+  socket.on('stopTreasureRoulette', () => {
+    const room = rooms[socket.roomId];
+    if (!room || room.status !== 'PLAYING') return;
+    const player = room.players[room.turnIndex];
+    if (!player || player.id !== socket.id || !player.pendingEvent || player.pendingEvent.type !== 'TREASURE') return;
+
+    player.pendingEvent = null;
+    const treasure = TREASURES[Math.floor(Math.random() * TREASURES.length)];
+    player.treasures.push(treasure);
+
+    io.to(room.id).emit('treasureDecided', {
+      playerName: player.name,
+      treasure
+    });
+    sendSystemChat(room.id, `💎 ${player.name}さんがお宝「${treasure.name}」（売値 $${treasure.value.toLocaleString()}）を獲得しました！`);
+    broadcastRoomState(room.id);
+
+    setTimeout(() => {
+      io.to(room.id).emit('closeTreasureRoulette');
+      nextTurn(room.id);
+    }, 2000);
+  });
+
+  // クリック連打チャレンジ結果提出
+  socket.on('submitClickChallenge', ({ clicks }) => {
+    const room = rooms[socket.roomId];
+    if (!room || room.status !== 'PLAYING') return;
+    const player = room.players[room.turnIndex];
+    if (!player || player.id !== socket.id || !player.pendingEvent || player.pendingEvent.type !== 'CLICK_GAME') return;
+
+    const { targetClicks, reward, penalty } = player.pendingEvent;
+    player.pendingEvent = null;
+    const safeClicks = Math.min(Number(clicks) || 0, 120);
+    const success = safeClicks >= targetClicks;
+
+    io.to(room.id).emit('closeClickChallenge');
+
+    if (success) {
+      player.money += reward;
+      sendSystemChat(room.id, `⚡ 連打チャレンジ成功！${player.name}さんが5秒で${safeClicks}回タップ（目標${targetClicks}回）達成！+$${reward.toLocaleString()}獲得！`);
+      broadcastRoomState(room.id);
+      showResultBannerAndProceed(room.id, {
+        title: '⚡ 連打チャレンジ成功！',
+        subtitle: `${safeClicks}回 / 目標${targetClicks}回 達成！+$${reward.toLocaleString()}`,
+        theme: 'win'
+      }, () => nextTurn(room.id));
+    } else {
+      player.money -= penalty;
+      sendSystemChat(room.id, `💦 連打チャレンジ失敗…${player.name}さんは${safeClicks}回（目標${targetClicks}回）で未達成…-$${penalty.toLocaleString()}失いました。`);
+      broadcastRoomState(room.id);
+      showResultBannerAndProceed(room.id, {
+        title: '💦 連打チャレンジ失敗…',
+        subtitle: `${safeClicks}回 / 目標${targetClicks}回 未達成… -$${penalty.toLocaleString()}`,
+        theme: 'lose'
+      }, () => nextTurn(room.id));
+    }
+  });
+
+  // 全員参加ダイスバトル：各プレイヤーが自分のサイコロを振る
+  socket.on('rollMinigameDice', () => {
+    const room = rooms[socket.roomId];
+    if (!room || !room.activeMinigame || room.activeMinigame.rolling) return;
+    const mg = room.activeMinigame;
+    const currentParticipant = mg.participants[mg.currentIdx];
+
+    if (!currentParticipant || currentParticipant.id !== socket.id) return;
+
+    mg.rolling = true;
+    const roll = Math.floor(Math.random() * 6) + 1;
+    currentParticipant.roll = roll;
+
+    io.to(room.id).emit('diceMinigameRolled', {
+      playerId: currentParticipant.id,
+      roll
+    });
+
+    setTimeout(() => {
+      if (!rooms[room.id] || !room.activeMinigame) return;
+      mg.rolling = false;
+      mg.currentIdx++;
+
+      if (mg.currentIdx < mg.participants.length) {
+        const nextRoller = mg.participants[mg.currentIdx];
+        io.to(room.id).emit('diceMinigameNextRoller', {
+          participants: mg.participants,
+          currentRollerId: nextRoller.id
+        });
+      } else {
+        io.to(room.id).emit('diceMinigameNextRoller', {
+          participants: mg.participants,
+          currentRollerId: null
+        });
+        finalizeDiceMinigame(room.id);
+      }
+    }, 1400);
   });
 
   socket.on('submitEventChoice', (choice) => {
@@ -885,6 +1146,7 @@ io.on('connection', (socket) => {
       money: 5000,
       position: 0,
       properties: [],
+      treasures: [],
       married: false,
       childrenCount: 0,
       finished: false
@@ -929,6 +1191,10 @@ io.on('connection', (socket) => {
       if (room.status === 'PLAYING') {
         if (room.turnIndex >= room.players.length) room.turnIndex = 0;
         room.turnLocked = false;
+        room.activeMinigame = null;
+        io.to(roomId).emit('closeDiceMinigame');
+        io.to(roomId).emit('closeTreasureRoulette');
+        io.to(roomId).emit('closeClickChallenge');
         broadcastRoomState(roomId);
         const nextPlayer = room.players[room.turnIndex];
         if (nextPlayer) {

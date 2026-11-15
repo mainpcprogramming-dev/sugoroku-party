@@ -98,7 +98,44 @@
     </div>
   </div>
 
-  <!-- 結果演出バナー（1.5秒間表示） -->
+  <!-- お宝ルーレットモーダル -->
+  <div id="treasure-modal" class="overlay hidden">
+    <div class="card modal-card">
+      <div id="treasure-actor-badge" class="actor-badge">〇〇さんのお宝ルーレット</div>
+      <h2>💎 お宝発見！ルーレット！</h2>
+      <p>ストップを押してレアなお宝をゲットしよう！（決算時に売却）</p>
+      <div id="treasure-slot" class="job-slot treasure-slot">👑 伝説の王冠</div>
+      <button id="btn-stop-treasure" class="btn accent big-btn">ストップしてお宝ゲット！</button>
+      <p id="treasure-wait-msg" class="status-text hidden">対象プレイヤーがルーレットを止めるのを待っています...</p>
+    </div>
+  </div>
+
+  <!-- クリック連打チャレンジモーダル -->
+  <div id="click-modal" class="overlay hidden">
+    <div class="card modal-card">
+      <div id="click-actor-badge" class="actor-badge">〇〇さんの連打チャレンジ</div>
+      <h2>⚡ 5秒間ボタン連打チャレンジ！</h2>
+      <p id="click-rule-text" class="event-desc-text">5秒以内に 50回 タップせよ！</p>
+      <div id="click-timer-display" class="click-timer">準備中... 3</div>
+      <div id="click-counter-display" class="click-counter">0 / 50 回</div>
+      <button id="btn-tap-target" class="btn danger tap-big-btn" disabled>スタート待ち...</button>
+      <p id="click-wait-msg" class="status-text hidden">対象プレイヤーが連打チャレンジ中です...</p>
+    </div>
+  </div>
+
+  <!-- 全員参加ダイスバトルモーダル -->
+  <div id="dice-minigame-modal" class="overlay hidden">
+    <div class="card modal-card">
+      <h2>🎲 全員参加！ハイ＆ローダイス勝負</h2>
+      <p id="dice-mg-info" class="event-desc-text">参加費 $3,000 徴収！出た目が大きい順に賞金分配！</p>
+      <div id="dice-mg-prizes" class="prize-banner"></div>
+      <div id="dice-mg-slot" class="roulette-number" style="margin: 10px auto; width: 72px; height: 72px; line-height: 68px; font-size: 2.6rem;">?</div>
+      <button id="btn-roll-mg-dice" class="btn primary big-btn" disabled>自分のサイコロを振る！</button>
+      <div id="dice-mg-list" class="job-status-list"></div>
+    </div>
+  </div>
+
+  <!-- 結果演出バナー（1.6秒間表示） -->
   <div id="result-banner-overlay" class="overlay hidden">
     <div id="result-banner-box" class="result-banner win">
       <h2 id="banner-title">勝利！</h2>
@@ -161,7 +198,7 @@
   <div id="result-screen" class="screen">
     <div class="card result-card">
       <h1>🏆 人生の総決算＆最終ランキング 🏆</h1>
-      <p class="subtitle">所持金 ＋ 物件売却 ＋ 家族ボーナス ＝ 総資産</p>
+      <p class="subtitle">所持金 ＋ 物件 ＋ お宝売却 ＋ 家族ボーナス ＝ 総資産</p>
       <div id="ranking-container" class="ranking-list"></div>
 
       <div id="party-end-actions" class="end-actions hidden">

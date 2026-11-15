@@ -3,6 +3,9 @@ let myPlayerId = null;
 let currentRoomState = null;
 let rouletteInterval = null;
 let jobRouletteInterval = null;
+let treasureRouletteInterval = null;
+let diceMgRollInterval = null;
+let clickChallengeInterval = null;
 let turnToastTimeout = null;
 
 function showScreen(screenId) {
@@ -179,7 +182,211 @@ socket.on('allJobsDecided', () => {
   document.getElementById('job-roulette-modal').classList.add('hidden');
 });
 
-// 「あなたの番です！」通知
+// ========================
+// 1. お宝ルーレットイベント
+// ========================
+socket.on('startTreasureRoulette', ({ playerId, playerName, treasures }) => {
+  const modal = document.getElementById('treasure-modal');
+  const badge = document.getElementById('treasure-actor-badge');
+  const slotEl = document.getElementById('treasure-slot');
+  const stopBtn = document.getElementById('btn-stop-treasure');
+  const waitMsg = document.getElementById('treasure-wait-msg');
+
+  const isMyEvent = playerId === myPlayerId;
+  badge.textContent = `${playerName}さんのお宝ルーレット`;
+  modal.classList.remove('hidden');
+
+  if (isMyEvent) {
+    stopBtn.classList.remove('hidden');
+    stopBtn.disabled = false;
+    waitMsg.classList.add('hidden');
+  } else {
+    stopBtn.classList.add('hidden');
+    waitMsg.textContent = `${playerName}さんがお宝ルーレットを止めるのを待っています...`;
+    waitMsg.classList.remove('hidden');
+  }
+
+  let idx = 0;
+  clearInterval(treasureRouletteInterval);
+  treasureRouletteInterval = setInterval(() => {
+    slotEl.textContent = treasures[idx % treasures.length];
+    idx++;
+  }, 65);
+});
+
+document.getElementById('btn-stop-treasure').onclick = () => {
+  document.getElementById('btn-stop-treasure').disabled = true;
+  socket.emit('stopTreasureRoulette');
+};
+
+socket.on('treasureDecided', ({ treasure }) => {
+  clearInterval(treasureRouletteInterval);
+  document.getElementById('treasure-slot').innerHTML = `${treasure.name}<br><small style="font-size:1rem;">（決算売却額 $${treasure.value.toLocaleString()}）</small>`;
+});
+
+socket.on('closeTreasureRoulette', () => {
+  clearInterval(treasureRouletteInterval);
+  document.getElementById('treasure-modal').classList.add('hidden');
+});
+
+// ========================
+// 2. クリック連打チャレンジ
+// ========================
+socket.on('startClickChallenge', ({ playerId, playerName, targetClicks, reward, penalty }) => {
+  const modal = document.getElementById('click-modal');
+  const badge = document.getElementById('click-actor-badge');
+  const ruleText = document.getElementById('click-rule-text');
+  const timerEl = document.getElementById('click-timer-display');
+  const counterEl = document.getElementById('click-counter-display');
+  const tapBtn = document.getElementById('btn-tap-target');
+  const waitMsg = document.getElementById('click-wait-msg');
+
+  const isMyEvent = playerId === myPlayerId;
+  badge.textContent = `${playerName}さんの連打チャレンジ`;
+  ruleText.innerHTML = `5秒以内に <strong>${targetClicks}回</strong> タップせよ！<br>成功: <span style="color:#27ae60;">+$${reward.toLocaleString()}</span> ／ 失敗: <span style="color:#e74c3c;">-$${penalty.toLocaleString()}</span>`;
+  counterEl.textContent = `0 / ${targetClicks} 回`;
+  modal.classList.remove('hidden');
+
+  clearInterval(clickChallengeInterval);
+
+  if (!isMyEvent) {
+    tapBtn.classList.add('hidden');
+    timerEl.textContent = '挑戦中...';
+    waitMsg.textContent = `${playerName}さんが連打チャレンジに挑戦中です...`;
+    waitMsg.classList.remove('hidden');
+    return;
+  }
+
+  waitMsg.classList.add('hidden');
+  tapBtn.classList.remove('hidden');
+  tapBtn.disabled = true;
+  tapBtn.textContent = 'スタート待ち...';
+
+  let prep = 3;
+  timerEl.textContent = `開始まで... ${prep}`;
+  let clicks = 0;
+
+  tapBtn.onclick = () => {
+    if (tapBtn.disabled) return;
+    clicks++;
+    counterEl.textContent = `${clicks} / ${targetClicks} 回`;
+  };
+
+  clickChallengeInterval = setInterval(() => {
+    prep--;
+    if (prep > 0) {
+      timerEl.textContent = `開始まで... ${prep}`;
+    } else {
+      clearInterval(clickChallengeInterval);
+      tapBtn.disabled = false;
+      tapBtn.textContent = '連打しろ！！🔥';
+
+      let timeLeftMs = 5000;
+      timerEl.textContent = `残り 5.0 秒！`;
+
+      clickChallengeInterval = setInterval(() => {
+        timeLeftMs -= 100;
+        if (timeLeftMs > 0) {
+          timerEl.textContent = `残り ${(timeLeftMs / 1000).toFixed(1)} 秒！`;
+        } else {
+          clearInterval(clickChallengeInterval);
+          tapBtn.disabled = true;
+          tapBtn.textContent = '終了！';
+          timerEl.textContent = 'タイムアップ！';
+          socket.emit('submitClickChallenge', { clicks });
+        }
+      }, 100);
+    }
+  }, 1000);
+});
+
+socket.on('closeClickChallenge', () => {
+  clearInterval(clickChallengeInterval);
+  document.getElementById('click-modal').classList.add('hidden');
+});
+
+// ========================
+// 3. 全員参加ダイスミニゲーム
+// ========================
+function renderDiceMinigameParticipants(participants, currentRollerId) {
+  const listEl = document.getElementById('dice-mg-list');
+  listEl.innerHTML = participants.map(p => {
+    let statusHtml = '順番待ち...';
+    if (p.roll !== null) {
+      statusHtml = `<strong style="font-size:1.1rem; color:#1e3c72;">出目: ${p.roll}</strong>${p.rank ? `（${p.rank}位 +$${p.prize.toLocaleString()}）` : ''}`;
+    } else if (p.id === currentRollerId) {
+      statusHtml = `<span style="color:#e67e22; font-weight:bold;">🎲 サイコロ待機中！</span>`;
+    }
+    return `
+      <div class="job-status-item" style="${p.id === currentRollerId ? 'border:2px solid #f39c12; background:#fef9e7;' : ''}">
+        <span><i class="color-dot" style="background:${p.color}"></i>${escapeHtml(p.name)}</span>
+        <span>${statusHtml}</span>
+      </div>
+    `;
+  }).join('');
+
+  const rollBtn = document.getElementById('btn-roll-mg-dice');
+  if (currentRollerId === myPlayerId) {
+    rollBtn.disabled = false;
+    rollBtn.textContent = '🎲 あなたの番！サイコロを振る！';
+  } else {
+    rollBtn.disabled = true;
+    const roller = participants.find(p => p.id === currentRollerId);
+    rollBtn.textContent = roller ? `${roller.name}さんが振るのを待っています...` : '結果集計中...';
+  }
+}
+
+socket.on('startDiceMinigame', ({ entryFee, prizes, participants, currentRollerId }) => {
+  const modal = document.getElementById('dice-minigame-modal');
+  const infoEl = document.getElementById('dice-mg-info');
+  const prizesEl = document.getElementById('dice-mg-prizes');
+  const slotEl = document.getElementById('dice-mg-slot');
+
+  infoEl.textContent = `全員から参加費 $${entryFee.toLocaleString()} を徴収！出目が大きい順に賞金分配！`;
+  prizesEl.textContent = prizes.map((pr, i) => `${i + 1}位: +$${pr.toLocaleString()}`).join(' / ');
+  slotEl.textContent = '?';
+
+  renderDiceMinigameParticipants(participants, currentRollerId);
+  modal.classList.remove('hidden');
+});
+
+document.getElementById('btn-roll-mg-dice').onclick = () => {
+  document.getElementById('btn-roll-mg-dice').disabled = true;
+  socket.emit('rollMinigameDice');
+};
+
+socket.on('diceMinigameRolled', ({ roll }) => {
+  clearInterval(diceMgRollInterval);
+  const slotEl = document.getElementById('dice-mg-slot');
+  let n = 1;
+  diceMgRollInterval = setInterval(() => {
+    n = (n % 6) + 1;
+    slotEl.textContent = n;
+  }, 50);
+
+  setTimeout(() => {
+    clearInterval(diceMgRollInterval);
+    slotEl.textContent = roll;
+  }, 1100);
+});
+
+socket.on('diceMinigameNextRoller', ({ participants, currentRollerId }) => {
+  renderDiceMinigameParticipants(participants, currentRollerId);
+});
+
+socket.on('diceMinigameResult', ({ results }) => {
+  renderDiceMinigameParticipants(results, null);
+  document.getElementById('btn-roll-mg-dice').textContent = '🏆 順位確定！賞金を分配しました！';
+});
+
+socket.on('closeDiceMinigame', () => {
+  clearInterval(diceMgRollInterval);
+  document.getElementById('dice-minigame-modal').classList.add('hidden');
+});
+
+// ========================
+// ターン通知・結果バナー
+// ========================
 socket.on('yourTurnNotice', ({ isGoalBonus }) => {
   const toast = document.getElementById('your-turn-toast');
   toast.textContent = isGoalBonus
@@ -193,7 +400,6 @@ socket.on('yourTurnNotice', ({ isGoalBonus }) => {
   }, 1800);
 });
 
-// 結果バナー（1.5秒間表示）
 socket.on('showResultBanner', ({ title, subtitle, theme }) => {
   const overlay = document.getElementById('result-banner-overlay');
   const box = document.getElementById('result-banner-box');
@@ -228,7 +434,7 @@ function renderGameBoard(state) {
         <span class="p-badge">${p.finished ? 'GOAL済' : `P${idx + 1}`}</span>
       </div>
       <div class="p-money ${p.isNegative ? 'negative' : ''}">${p.displayMoney}</div>
-      <div class="p-sub">物件:${p.properties.length} / 家族:${p.married ? '既婚' : '独身'}${p.childrenCount > 0 ? `(子${p.childrenCount})` : ''}</div>
+      <div class="p-sub">物件:${p.properties.length} / お宝:${p.treasures.length} / ${p.married ? '既婚' : '独身'}${p.childrenCount > 0 ? `(子${p.childrenCount})` : ''}</div>
     `;
     statusBar.appendChild(div);
   });
@@ -425,7 +631,7 @@ socket.on('gameFinished', ({ results, isAutoMatch }) => {
     item.innerHTML = `
       <div>
         <strong>第${actualRank}位：${escapeHtml(r.name)}</strong>（${r.job}）<br>
-        <small>所持金 ${r.formattedCash} ＋ 物件 $${r.propertyValue.toLocaleString()} ＋ 家族 $${r.familyBonus.toLocaleString()}</small>
+        <small>所持金 ${r.formattedCash} ＋ 物件 $${r.propertyValue.toLocaleString()} ＋ お宝 $${r.treasureValue.toLocaleString()} ＋ 家族 $${r.familyBonus.toLocaleString()}</small>
       </div>
       <div style="font-size:1.2rem; font-weight:bold; color:${r.totalAssets < 0 ? '#c0392b' : '#27ae60'};">
         ${r.formattedTotal}
@@ -457,9 +663,15 @@ socket.on('rematchStatus', (msg) => { document.getElementById('rematch-status').
 socket.on('forceReturnLobby', (msg) => {
   clearInterval(rouletteInterval);
   clearInterval(jobRouletteInterval);
+  clearInterval(treasureRouletteInterval);
+  clearInterval(diceMgRollInterval);
+  clearInterval(clickChallengeInterval);
   clearTimeout(turnToastTimeout);
   document.getElementById('countdown-overlay').classList.add('hidden');
   document.getElementById('job-roulette-modal').classList.add('hidden');
+  document.getElementById('treasure-modal').classList.add('hidden');
+  document.getElementById('click-modal').classList.add('hidden');
+  document.getElementById('dice-minigame-modal').classList.add('hidden');
   document.getElementById('event-modal').classList.add('hidden');
   document.getElementById('result-banner-overlay').classList.add('hidden');
   document.getElementById('your-turn-toast').classList.add('hidden');
