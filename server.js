@@ -112,13 +112,12 @@ function generateBoard() {
   fixedMap[16] = { ...stopCandidates[0] };
   fixedMap[32] = { ...stopCandidates[1] };
 
-  // 空きマスリスト（1〜46）
   const freeIndices = [];
   for (let i = 1; i < totalTiles - 1; i++) {
     if (!fixedMap[i]) freeIndices.push(i);
   }
 
-  // 2. 下克上マス（最下位大逆転マス：終盤 34〜45 の間に1マス必ず配置）
+  // 2. 下克上マス（終盤 34〜45 の間に1マス必ず配置）
   const comebackCandidates = freeIndices.filter(idx => idx >= 34 && idx <= 45);
   const comebackPos = comebackCandidates[Math.floor(Math.random() * comebackCandidates.length)];
   fixedMap[comebackPos] = {
@@ -127,7 +126,6 @@ function generateBoard() {
     desc: '最下位なら1位との差額を一気に逆転！'
   };
 
-  // 残りの空きマスをシャッフル
   const remainingIndices = shuffleArray(freeIndices.filter(idx => !fixedMap[idx]));
 
   // 3. お宝マス（2〜3個必ず配置）
@@ -137,7 +135,7 @@ function generateBoard() {
     fixedMap[pos] = { type: 'TREASURE', label: '💎お宝マス', desc: 'お宝ルーレットでお宝ゲット！' };
   }
 
-  // 4. すべての基本・イベントマス種別を「必ず最低1個」配置する
+  // 4. 全基本・イベントマス種別を必ず最低1個保証
   const guaranteedTypes = [
     'NORMAL',
     'PLUS',
@@ -153,7 +151,6 @@ function generateBoard() {
     'PROPERTY'
   ];
 
-  // 残りのマス枠を重み付きランダムで埋める（マイナスマス少し多め）
   const weightedPool = [
     'NORMAL', 'NORMAL',
     'PLUS', 'PLUS', 'PLUS', 'PLUS', 'PLUS',
@@ -176,7 +173,6 @@ function generateBoard() {
   }
   shuffleArray(allTypesToPlace);
 
-  // マスデータ生成ヘルパー
   function buildTileByType(index, type) {
     const multiplier = Math.floor(index / 8) + 1;
     const baseAmount = 1000 * multiplier;
@@ -211,7 +207,7 @@ function generateBoard() {
       case 'MINUS_ROULETTE':
         return { index, type: 'MINUS_ROULETTE', label: '💀道連れルーレット' };
       case 'MYSTERY':
-        return { index, type: 'MYSTERY', label: '？？？マス' };
+        return { index, type: 'MYSTERY', label: '？？？' };
       case 'BABY': {
         const val = baseAmount * 2;
         return { index, type: 'BABY', label: '出産祝い', amount: val, desc: `赤ちゃん誕生！お祝い金+$${val}` };
@@ -385,7 +381,8 @@ function executeSpin(roomId, playerId) {
     if (!rooms[roomId]) return;
 
     if (player.finished) {
-      const bonus = result * 200;
+      // ゴールボーナス：出た目 × $500
+      const bonus = result * 500;
       player.money += bonus;
       sendSystemChat(roomId, `🌟 ゴール済みボーナス！${player.name}さんは「${result}」を出し、$${bonus.toLocaleString()}獲得しました！`);
       broadcastRoomState(roomId);
@@ -595,7 +592,6 @@ function handleTileLanding(roomId, player) {
     }
 
   } else if (tile.type === 'COMEBACK') {
-    // 🔥下克上マス（現在最下位なら1位との差額分を一気に逆転！）
     const minMoney = Math.min(...room.players.map(p => p.money));
     const maxMoney = Math.max(...room.players.map(p => p.money));
 
@@ -622,20 +618,19 @@ function handleTileLanding(roomId, player) {
     }
 
   } else if (tile.type === 'MINUS_ROULETTE') {
-    // 💀 マイナス額ルーレット → 被害者プレイヤー決めルーレット
+    // 💀 道連れルーレット（ステップ1：マイナス金額決定 → ステップ2：ターゲット決定）
     player.pendingEvent = { type: 'MINUS_ROULETTE', step: 'AMOUNT', chosenAmount: 0 };
     io.to(roomId).emit('startMinusRoulette', {
-      actorId: player.id,
+      actorId: String(player.id),
       actorName: player.name,
       amounts: MINUS_ROULETTE_AMOUNTS,
-      players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color }))
+      players: room.players.map(p => ({ id: String(p.id), name: p.name, color: p.color }))
     });
 
   } else if (tile.type === 'MYSTERY') {
-    // ？？？マス（プラスorマイナスルーレット）
     player.pendingEvent = { type: 'MYSTERY' };
     io.to(roomId).emit('startMysteryRoulette', {
-      actorId: player.id,
+      actorId: String(player.id),
       actorName: player.name,
       items: MYSTERY_ROULETTE_ITEMS.map(item => item.label)
     });
@@ -643,7 +638,7 @@ function handleTileLanding(roomId, player) {
   } else if (tile.type === 'TREASURE') {
     player.pendingEvent = { type: 'TREASURE' };
     io.to(roomId).emit('startTreasureRoulette', {
-      playerId: player.id,
+      playerId: String(player.id),
       playerName: player.name,
       treasures: TREASURES.map(t => t.name)
     });
@@ -658,7 +653,7 @@ function handleTileLanding(roomId, player) {
       clicks: 0
     };
     io.to(roomId).emit('startClickChallenge', {
-      playerId: player.id,
+      playerId: String(player.id),
       playerName: player.name,
       targetClicks,
       reward: tile.reward,
@@ -681,7 +676,7 @@ function handleTileLanding(roomId, player) {
       currentIdx: 0,
       rolling: false,
       participants: room.players.map(p => ({
-        id: p.id,
+        id: String(p.id),
         name: p.name,
         color: p.color,
         roll: null,
@@ -700,7 +695,7 @@ function handleTileLanding(roomId, player) {
   } else if (tile.type === 'BRANCH') {
     io.to(roomId).emit('interactiveEvent', {
       type: 'BRANCH',
-      playerId: player.id,
+      playerId: String(player.id),
       playerName: player.name,
       title: '人生の分岐点！どちらの道に進む？',
       desc: '堅実コース（確実に+$5,000）か、ギャンブルコース（50%で+$20,000 / 50%で-$8,000）'
@@ -712,7 +707,7 @@ function handleTileLanding(roomId, player) {
     io.to(roomId).emit('interactiveEvent', {
       type: 'QUIZ',
       difficulty: room.quizDifficulty,
-      playerId: player.id,
+      playerId: String(player.id),
       playerName: player.name,
       question: quiz.q,
       options: quiz.options,
@@ -723,7 +718,7 @@ function handleTileLanding(roomId, player) {
     player.pendingEvent = { type: 'JANKEN', winAmount: tile.winAmount, loseAmount: tile.loseAmount };
     io.to(roomId).emit('interactiveEvent', {
       type: 'JANKEN',
-      playerId: player.id,
+      playerId: String(player.id),
       playerName: player.name,
       winAmount: tile.winAmount,
       loseAmount: tile.loseAmount
@@ -733,7 +728,7 @@ function handleTileLanding(roomId, player) {
     player.pendingEvent = { type: 'PROPERTY', property: tile.property };
     io.to(roomId).emit('interactiveEvent', {
       type: 'PROPERTY',
-      playerId: player.id,
+      playerId: String(player.id),
       playerName: player.name,
       property: tile.property,
       canAfford: player.money >= tile.property.price
@@ -998,14 +993,26 @@ io.on('connection', (socket) => {
     const ev = player.pendingEvent;
     if (ev.step === 'AMOUNT') {
       const chosenAmount = MINUS_ROULETTE_AMOUNTS[Math.floor(Math.random() * MINUS_ROULETTE_AMOUNTS.length)];
-      ev.step = 'TARGET';
+      ev.step = 'TRANSITION';
       ev.chosenAmount = chosenAmount;
 
       io.to(room.id).emit('minusRouletteAmountDecided', {
         amount: chosenAmount,
-        actorId: player.id,
+        actorId: String(player.id),
         actorName: player.name
       });
+
+      setTimeout(() => {
+        if (!rooms[room.id] || !player.pendingEvent || player.pendingEvent.type !== 'MINUS_ROULETTE') return;
+        ev.step = 'TARGET';
+        io.to(room.id).emit('startMinusTargetRoulette', {
+          amount: chosenAmount,
+          actorId: String(player.id),
+          actorName: player.name,
+          players: room.players.map(p => ({ id: String(p.id), name: p.name, color: p.color }))
+        });
+      }, 1100);
+
     } else if (ev.step === 'TARGET') {
       const targetPlayer = room.players[Math.floor(Math.random() * room.players.length)];
       const amount = ev.chosenAmount;
@@ -1079,7 +1086,7 @@ io.on('connection', (socket) => {
     }, 2000);
   });
 
-  // 連打ゲームのリアルタイム回数通知（他のプレイヤーにも同期）
+  // 連打ゲームのリアルタイム回数通知
   socket.on('clickChallengeTap', ({ clicks }) => {
     const room = rooms[socket.roomId];
     if (!room || room.status !== 'PLAYING') return;
@@ -1126,7 +1133,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 全員参加ダイスバトル：各プレイヤーが自分のサイコロを振る
+  // 全員参加ダイスバトル
   socket.on('rollMinigameDice', () => {
     const room = rooms[socket.roomId];
     if (!room || !room.activeMinigame || room.activeMinigame.rolling) return;

@@ -10,7 +10,6 @@ let diceMgRollInterval = null;
 let clickChallengeInterval = null;
 let turnToastTimeout = null;
 let currentClickTarget = 50;
-let minusRouletteCache = { amounts: [], players: [], isMyEvent: false };
 
 function showScreen(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -49,7 +48,7 @@ socket.on('matchingStatus', ({ count }) => {
 socket.on('errorMsg', (msg) => alert(msg));
 
 socket.on('joinedRoom', ({ roomId, playerId }) => {
-  myPlayerId = playerId;
+  myPlayerId = playerId || socket.id;
   document.getElementById('lobby-status').textContent = '';
   document.getElementById('btn-cancel-match').classList.add('hidden');
   document.getElementById('display-room-id').textContent = roomId;
@@ -72,6 +71,7 @@ document.getElementById('btn-force-start').onclick = () => socket.emit('startGam
 
 socket.on('roomStateUpdate', (state) => {
   currentRoomState = state;
+  if (!myPlayerId && socket.id) myPlayerId = socket.id;
   const me = state.players.find(p => p.id === myPlayerId);
   if (!me) return;
 
@@ -171,7 +171,7 @@ document.getElementById('btn-stop-job').onclick = () => {
 };
 
 socket.on('playerJobDecided', ({ playerId, jobName, salary }) => {
-  if (playerId === myPlayerId) {
+  if (playerId === (myPlayerId || socket.id)) {
     clearInterval(jobRouletteInterval);
     document.getElementById('job-roulette-slot').textContent = `${jobName}（給料 $${salary.toLocaleString()}）`;
   }
@@ -187,11 +187,11 @@ socket.on('allJobsDecided', () => {
 });
 
 // ========================
-// 💀 マイナスルーレット（2段階：金額→ターゲットプレイヤー）
+// 💀 マイナスルーレット（道連れルーレット）
 // ========================
-socket.on('startMinusRoulette', ({ actorId, actorName, amounts, players }) => {
-  const isMyEvent = actorId === myPlayerId;
-  minusRouletteCache = { amounts, players, isMyEvent };
+socket.on('startMinusRoulette', ({ actorId, actorName, amounts }) => {
+  const currentId = myPlayerId || socket.id;
+  const isMyEvent = String(actorId) === String(currentId);
 
   const modal = document.getElementById('minus-roulette-modal');
   const badge = document.getElementById('minus-actor-badge');
@@ -218,10 +218,11 @@ socket.on('startMinusRoulette', ({ actorId, actorName, amounts, players }) => {
     waitMsg.classList.remove('hidden');
   }
 
+  const list = amounts && amounts.length ? amounts : [3000, 5000, 10000, 15000, 20000];
   let idx = 0;
   clearInterval(minusRouletteInterval);
   minusRouletteInterval = setInterval(() => {
-    slotEl.textContent = `-$${amounts[idx % amounts.length].toLocaleString()}`;
+    slotEl.textContent = `-$${list[idx % list.length].toLocaleString()}`;
     idx++;
   }, 60);
 });
@@ -231,36 +232,48 @@ document.getElementById('btn-stop-minus').onclick = () => {
   socket.emit('stopMinusRoulette');
 };
 
-socket.on('minusRouletteAmountDecided', ({ amount, actorName }) => {
+socket.on('minusRouletteAmountDecided', ({ amount }) => {
   clearInterval(minusRouletteInterval);
+  const slotEl = document.getElementById('minus-roulette-slot');
+  slotEl.textContent = `-$${amount.toLocaleString()} に決定！`;
+});
+
+socket.on('startMinusTargetRoulette', ({ amount, actorId, actorName, players }) => {
+  const currentId = myPlayerId || socket.id;
+  const isMyEvent = String(actorId) === String(currentId);
+
+  const modal = document.getElementById('minus-roulette-modal');
   const titleEl = document.getElementById('minus-roulette-title');
   const descEl = document.getElementById('minus-roulette-desc');
   const slotEl = document.getElementById('minus-roulette-slot');
   const stopBtn = document.getElementById('btn-stop-minus');
   const waitMsg = document.getElementById('minus-wait-msg');
 
-  slotEl.textContent = `-$${amount.toLocaleString()} に決定！`;
+  modal.classList.remove('hidden');
+  titleEl.textContent = '🎯 ステップ2：誰が払うか決定！';
+  descEl.textContent = `-$${amount.toLocaleString()} を支払うプレイヤーを決めるぞ！`;
+  slotEl.className = 'job-slot';
 
-  setTimeout(() => {
-    titleEl.textContent = '🎯 ステップ2：誰が払うか決定！';
-    descEl.textContent = `-$${amount.toLocaleString()} を支払うプレイヤーを決めるぞ！`;
-    slotEl.className = 'job-slot';
+  if (isMyEvent) {
+    stopBtn.classList.remove('hidden');
+    stopBtn.disabled = false;
+    stopBtn.textContent = 'プレイヤーをストップ！';
+    waitMsg.classList.add('hidden');
+  } else {
+    stopBtn.classList.add('hidden');
+    waitMsg.textContent = `${actorName}さんが対象プレイヤーを止めています...`;
+    waitMsg.classList.remove('hidden');
+  }
 
-    if (minusRouletteCache.isMyEvent) {
-      stopBtn.disabled = false;
-      stopBtn.textContent = 'プレイヤーをストップ！';
-    } else {
-      waitMsg.textContent = `${actorName}さんが対象プレイヤーを止めています...`;
-    }
-
-    const pList = minusRouletteCache.players;
-    let idx = 0;
-    clearInterval(minusRouletteInterval);
-    minusRouletteInterval = setInterval(() => {
+  const pList = (players && players.length) ? players : (currentRoomState ? currentRoomState.players : []);
+  let idx = 0;
+  clearInterval(minusRouletteInterval);
+  minusRouletteInterval = setInterval(() => {
+    if (pList.length > 0) {
       slotEl.textContent = pList[idx % pList.length].name;
       idx++;
-    }, 65);
-  }, 1100);
+    }
+  }, 65);
 });
 
 socket.on('minusRouletteTargetDecided', ({ targetName, amount }) => {
@@ -285,7 +298,7 @@ socket.on('startMysteryRoulette', ({ actorId, actorName, items }) => {
   const stopBtn = document.getElementById('btn-stop-mystery');
   const waitMsg = document.getElementById('mystery-wait-msg');
 
-  const isMyEvent = actorId === myPlayerId;
+  const isMyEvent = String(actorId) === String(myPlayerId || socket.id);
   badge.textContent = `${actorName}さんの？？？ルーレット`;
   slotEl.className = 'job-slot';
   modal.classList.remove('hidden');
@@ -338,7 +351,7 @@ socket.on('startTreasureRoulette', ({ playerId, playerName, treasures }) => {
   const stopBtn = document.getElementById('btn-stop-treasure');
   const waitMsg = document.getElementById('treasure-wait-msg');
 
-  const isMyEvent = playerId === myPlayerId;
+  const isMyEvent = String(playerId) === String(myPlayerId || socket.id);
   badge.textContent = `${playerName}さんのお宝ルーレット`;
   modal.classList.remove('hidden');
 
@@ -376,7 +389,7 @@ socket.on('closeTreasureRoulette', () => {
 });
 
 // ========================
-// ⚡ クリック連打チャレンジ（他プレイヤーにもリアルタイム回数同期）
+// ⚡ クリック連打チャレンジ（リアルタイム回数共有）
 // ========================
 socket.on('startClickChallenge', ({ playerId, playerName, targetClicks, reward, penalty }) => {
   const modal = document.getElementById('click-modal');
@@ -388,7 +401,7 @@ socket.on('startClickChallenge', ({ playerId, playerName, targetClicks, reward, 
   const waitMsg = document.getElementById('click-wait-msg');
 
   currentClickTarget = targetClicks;
-  const isMyEvent = playerId === myPlayerId;
+  const isMyEvent = String(playerId) === String(myPlayerId || socket.id);
   badge.textContent = `${playerName}さんの連打チャレンジ`;
   ruleText.innerHTML = `5秒以内に <strong>${targetClicks}回</strong> タップせよ！<br>成功: <span style="color:#27ae60;">+$${reward.toLocaleString()}</span> ／ 失敗: <span style="color:#e74c3c;">-$${penalty.toLocaleString()}</span>`;
   counterEl.textContent = `0 / ${targetClicks} 回`;
@@ -468,7 +481,6 @@ socket.on('startClickChallenge', ({ playerId, playerName, targetClicks, reward, 
   }, 1000);
 });
 
-// 他プレイヤー画面でのリアルタイム回数更新
 socket.on('clickChallengeProgress', ({ clicks }) => {
   const counterEl = document.getElementById('click-counter-display');
   if (counterEl) {
@@ -485,16 +497,17 @@ socket.on('closeClickChallenge', () => {
 // 🎲 全員参加ダイスミニゲーム
 // ========================
 function renderDiceMinigameParticipants(participants, currentRollerId) {
+  const currentId = myPlayerId || socket.id;
   const listEl = document.getElementById('dice-mg-list');
   listEl.innerHTML = participants.map(p => {
     let statusHtml = '順番待ち...';
     if (p.roll !== null) {
       statusHtml = `<strong style="font-size:1.1rem; color:#1e3c72;">出目: ${p.roll}</strong>${p.rank ? `（${p.rank}位 +$${p.prize.toLocaleString()}）` : ''}`;
-    } else if (p.id === currentRollerId) {
+    } else if (String(p.id) === String(currentRollerId)) {
       statusHtml = `<span style="color:#e67e22; font-weight:bold;">🎲 サイコロ待機中！</span>`;
     }
     return `
-      <div class="job-status-item" style="${p.id === currentRollerId ? 'border:2px solid #f39c12; background:#fef9e7;' : ''}">
+      <div class="job-status-item" style="${String(p.id) === String(currentRollerId) ? 'border:2px solid #f39c12; background:#fef9e7;' : ''}">
         <span><i class="color-dot" style="background:${p.color}"></i>${escapeHtml(p.name)}</span>
         <span>${statusHtml}</span>
       </div>
@@ -502,12 +515,12 @@ function renderDiceMinigameParticipants(participants, currentRollerId) {
   }).join('');
 
   const rollBtn = document.getElementById('btn-roll-mg-dice');
-  if (currentRollerId === myPlayerId) {
+  if (String(currentRollerId) === String(currentId)) {
     rollBtn.disabled = false;
     rollBtn.textContent = '🎲 あなたの番！サイコロを振る！';
   } else {
     rollBtn.disabled = true;
-    const roller = participants.find(p => p.id === currentRollerId);
+    const roller = participants.find(p => String(p.id) === String(currentRollerId));
     rollBtn.textContent = roller ? `${roller.name}さんが振るのを待っています...` : '結果集計中...';
   }
 }
@@ -592,7 +605,7 @@ socket.on('hideResultBanner', () => {
 // ゲーム盤面・カラーバナー描画
 function renderGameBoard(state) {
   const activePlayer = state.players[state.turnIndex];
-  const isMyTurn = activePlayer && activePlayer.id === myPlayerId;
+  const isMyTurn = activePlayer && activePlayer.id === (myPlayerId || socket.id);
 
   const statusBar = document.getElementById('players-status-bar');
   statusBar.innerHTML = '';
@@ -688,7 +701,7 @@ socket.on('interactiveEvent', (data) => {
   const choicesEl = document.getElementById('event-choices');
   const waitMsg = document.getElementById('event-waiting-msg');
 
-  const isMyEvent = data.playerId === myPlayerId;
+  const isMyEvent = String(data.playerId) === String(myPlayerId || socket.id);
   actorBadge.textContent = `${data.playerName}さんのマスイベント`;
   choicesEl.innerHTML = '';
   modal.classList.remove('hidden');
