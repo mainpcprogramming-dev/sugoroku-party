@@ -2,13 +2,15 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
 }
 
 body {
   background-color: #1a3b70;
   color: #333;
   min-height: 100vh;
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
 }
 
 .screen {
@@ -50,11 +52,13 @@ body {
 
 h1 {
   font-size: 1.5rem;
+  font-weight: 800;
   margin-bottom: 18px;
   color: #1e3c72;
 }
 h2 {
   font-size: 1.3rem;
+  font-weight: 800;
   margin-bottom: 8px;
 }
 
@@ -77,6 +81,7 @@ select {
   border: 1.5px solid #dcdde1;
   border-radius: 8px;
   font-size: 0.95rem;
+  font-weight: 600;
   background: #fff;
 }
 
@@ -105,7 +110,7 @@ select {
   border: none;
   border-radius: 8px;
   font-size: 0.95rem;
-  font-weight: bold;
+  font-weight: 700;
   cursor: pointer;
   transition: transform 0.1s, opacity 0.2s;
   color: #fff;
@@ -119,7 +124,7 @@ select {
 }
 .btn.small {
   padding: 7px 12px;
-  font-size: 0.82rem;
+  font-size: 0.84rem;
 }
 .btn.big-btn {
   width: 100%;
@@ -128,7 +133,7 @@ select {
   margin-top: 8px;
 }
 
-/* スクリーンショット準拠のボタンカラー */
+/* ボタンカラー */
 .primary,
 .btn-green {
   background: #2ecc71;
@@ -200,6 +205,7 @@ select {
 
 .player-list-container h3 {
   font-size: 0.95rem;
+  font-weight: 700;
   margin-bottom: 8px;
   color: #222;
 }
@@ -273,7 +279,7 @@ select {
 }
 .countdown-text {
   font-size: 5rem;
-  font-weight: bold;
+  font-weight: 800;
   color: #f1c40f;
   text-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
@@ -295,16 +301,17 @@ select {
   margin-bottom: 8px;
 }
 .event-desc-text {
-  font-size: 0.92rem;
+  font-size: 0.94rem;
+  font-weight: 600;
   line-height: 1.5;
   margin-bottom: 12px;
-  color: #444;
+  color: #333;
 }
 
-/* 職業ルーレット（画像3枚目と同じクリーム色＋黄色枠＋紺文字） */
+/* 職業ルーレット */
 .job-slot {
   font-size: 1.7rem;
-  font-weight: bold;
+  font-weight: 800;
   color: #1e3c72;
   background: #fffbe6;
   border: 3px solid #f1c40f;
@@ -337,7 +344,8 @@ select {
   align-items: center;
   padding: 6px 4px;
   border-bottom: 1px solid #eee;
-  font-size: 0.85rem;
+  font-size: 0.86rem;
+  font-weight: 600;
 }
 .job-status-item:last-child {
   border-bottom: none;
@@ -461,7 +469,7 @@ select {
 }
 
 /* =========================================
-   メインゲーム画面（画像4枚目再現）
+   メインゲーム画面（スマホ基準レイアウト）
    ========================================= */
 #game-screen {
   max-width: 1360px;
@@ -480,7 +488,7 @@ select {
   padding: 8px 12px;
   border-radius: 10px;
   border-left: 6px solid #ccc;
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
 .player-card.active-turn {
@@ -498,51 +506,53 @@ select {
   color: #fff;
   padding: 2px 7px;
   border-radius: 4px;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   max-width: 90px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .p-job {
-  font-size: 0.76rem;
+  font-size: 0.78rem;
+  font-weight: 700;
   color: #444;
 }
 .p-money {
-  font-size: 1.05rem;
-  font-weight: bold;
+  font-size: 1.08rem;
+  font-weight: 800;
   color: #27ae60;
 }
 .p-money.negative {
   color: #c0392b;
 }
 .p-sub {
-  font-size: 0.72rem;
+  font-size: 0.74rem;
+  font-weight: 600;
   color: #666;
 }
 
 .game-main-layout {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   flex: 1;
 }
 
-/* スマホ時は操作パネル上・盤面中・チャット下 */
+/* ★スマホ時は「1.操作パネル → 2.チャット → 3.スゴロク盤面」の順番に配置 */
 .turn-panel-wrapper {
   order: 1;
 }
-.board-container {
+.chat-panel-wrapper {
   order: 2;
+}
+.board-container {
+  order: 3;
   background: #ffffff;
   border-radius: 12px;
   padding: 10px;
   overflow-y: auto;
-  max-height: 48vh;
+  max-height: 46vh;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-}
-.chat-panel-wrapper {
-  order: 3;
 }
 
 .turn-panel {
@@ -566,14 +576,14 @@ select {
   gap: 4px;
 }
 .turn-name {
-  font-weight: bold;
-  font-size: 0.9rem;
-  color: #333;
+  font-weight: 700;
+  font-size: 0.94rem;
+  color: #222;
 }
 .my-turn-badge {
   background: #e67e22;
   color: #fff;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   font-weight: bold;
   padding: 2px 8px;
   border-radius: 10px;
@@ -584,7 +594,7 @@ select {
   padding: 2px 8px;
   border-radius: 10px;
   font-weight: bold;
-  font-size: 0.76rem;
+  font-size: 0.78rem;
 }
 
 .roulette-inline {
@@ -599,7 +609,7 @@ select {
   line-height: 40px;
   text-align: center;
   font-size: 1.5rem;
-  font-weight: bold;
+  font-weight: 800;
   background: #fff;
   border: 2px solid #bdc3c7;
   border-radius: 8px;
@@ -618,31 +628,33 @@ select {
   display: flex;
   flex-direction: column;
   background: #fff;
+  padding: 10px 12px;
 }
 .chat-messages {
-  height: 110px;
+  height: 76px;
   overflow-y: auto;
   border: 1px solid #eee;
-  padding: 8px;
+  padding: 6px 8px;
   border-radius: 8px;
-  margin-bottom: 8px;
-  font-size: 0.8rem;
+  margin-bottom: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
   background: #fafafa;
 }
 .chat-msg {
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   line-height: 1.35;
 }
 .chat-msg.system {
   color: #2980b9;
-  font-weight: bold;
+  font-weight: 700;
 }
 .chat-form {
   display: flex;
   gap: 6px;
 }
 .chat-form input {
-  padding: 8px 10px;
+  padding: 7px 10px;
   font-size: 0.88rem;
 }
 .chat-form button {
@@ -665,19 +677,20 @@ select {
   flex-direction: column;
   justify-content: space-between;
   border: 1.5px solid #dcdde1;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   text-align: center;
 }
 .tile-num {
-  font-size: 0.62rem;
-  color: #888;
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: #777;
   text-align: left;
 }
 .tile-label {
-  font-weight: bold;
+  font-weight: 700;
   line-height: 1.25;
   word-break: break-word;
-  color: #2c3e50;
+  color: #222;
 }
 
 .tile.START {
@@ -763,8 +776,8 @@ select {
   padding: 1px 6px;
   border-radius: 4px;
   color: #fff;
-  font-size: 0.62rem;
-  font-weight: bold;
+  font-size: 0.64rem;
+  font-weight: 700;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -810,7 +823,7 @@ select {
 }
 
 /* =========================================
-   PC画面（768px以上：画像4枚目と完全一致の左右配置）
+   PC画面（768px以上：レイアウト維持＆文字をくっきり太めに調整）
    ========================================= */
 @media (min-width: 768px) {
   .status-bar {
@@ -857,12 +870,15 @@ select {
   .chat-panel {
     flex: 1;
     min-height: 0;
+    padding: 12px 14px;
   }
 
   .chat-messages {
     flex: 1;
     height: auto;
     min-height: 200px;
+    font-size: 0.86rem;
+    font-weight: 600;
   }
 
   .board-grid {
@@ -873,6 +889,14 @@ select {
   .tile {
     min-height: 76px;
     padding: 6px 4px;
-    font-size: 0.74rem;
+    font-size: 0.78rem;
+  }
+
+  .tile-num {
+    font-size: 0.68rem;
+  }
+
+  .tile-label {
+    font-weight: 700;
   }
 }
