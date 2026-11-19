@@ -357,6 +357,7 @@ socket.on('startTreasureRoulette', ({ playerId, playerName, treasures }) => {
 
   const isMyEvent = String(playerId) === String(myPlayerId || socket.id);
   badge.textContent = `${playerName}さんのお宝ルーレット`;
+  slotEl.className = 'job-slot treasure-slot';
   modal.classList.remove('hidden');
 
   if (isMyEvent) {
@@ -384,7 +385,11 @@ document.getElementById('btn-stop-treasure').onclick = () => {
 
 socket.on('treasureDecided', ({ treasure }) => {
   clearInterval(treasureRouletteInterval);
-  document.getElementById('treasure-slot').innerHTML = `${treasure.name}<br><small style="font-size:1rem;">（決算売却額 $${treasure.value.toLocaleString()}）</small>`;
+  const slotEl = document.getElementById('treasure-slot');
+  const isCursed = treasure.value < 0;
+  slotEl.className = isCursed ? 'job-slot minus-slot' : 'job-slot treasure-slot';
+  const valStr = isCursed ? `-$${Math.abs(treasure.value).toLocaleString()}` : `+$${treasure.value.toLocaleString()}`;
+  slotEl.innerHTML = `${treasure.name}<br><small style="font-size:1rem;">（決算時 ${valStr}）</small>`;
 });
 
 socket.on('closeTreasureRoulette', () => {
@@ -580,11 +585,15 @@ socket.on('closeDiceMinigame', () => {
 // ========================
 // ターン通知・結果バナー
 // ========================
-socket.on('yourTurnNotice', ({ isGoalBonus }) => {
+socket.on('yourTurnNotice', ({ isGoalBonus, isInJail }) => {
   const toast = document.getElementById('your-turn-toast');
-  toast.textContent = isGoalBonus
-    ? '🌟 あなたの番です！（ゴール済みボーナスルーレット）'
-    : '🎯 あなたの番です！ルーレットを回してください！';
+  if (isGoalBonus) {
+    toast.textContent = '🌟 あなたの番です！（ゴール済みボーナスルーレット）';
+  } else if (isInJail) {
+    toast.textContent = '🔒 収監中！ルーレットで「5以上」を出して出所しよう！';
+  } else {
+    toast.textContent = '🎯 あなたの番です！ルーレットを回してください！';
+  }
   toast.classList.remove('hidden');
 
   clearTimeout(turnToastTimeout);
@@ -618,7 +627,10 @@ function renderGameBoard(state) {
     div.className = `player-card ${idx === state.turnIndex ? 'active-turn' : ''}`;
     div.style.borderLeftColor = p.color;
 
-    const statusBadge = p.finished ? 'GOAL済' : (p.skipTurns > 0 ? '🤒休み中' : `P${idx + 1}`);
+    let statusBadge = `P${idx + 1}`;
+    if (p.finished) statusBadge = 'GOAL済';
+    else if (p.inJail) statusBadge = '🔒収監中';
+    else if (p.skipTurns > 0) statusBadge = '🤒休み中';
 
     div.innerHTML = `
       <div class="p-header">
@@ -638,9 +650,13 @@ function renderGameBoard(state) {
   const turnPanelBox = document.getElementById('turn-panel-box');
   const myTurnBadge = document.getElementById('my-turn-badge');
 
-  turnLabel.textContent = activePlayer.finished
-    ? `${activePlayer.name}さん（ゴールボーナス）`
-    : `${activePlayer.name}さんのターン`;
+  if (activePlayer.finished) {
+    turnLabel.textContent = `${activePlayer.name}さん（ゴールボーナス）`;
+  } else if (activePlayer.inJail) {
+    turnLabel.textContent = `${activePlayer.name}さん（🔒刑務所・5以上で出所）`;
+  } else {
+    turnLabel.textContent = `${activePlayer.name}さんのターン`;
+  }
   turnLabel.style.color = activePlayer.color;
 
   if (isMyTurn) {
@@ -719,7 +735,38 @@ socket.on('interactiveEvent', (data) => {
     waitMsg.classList.remove('hidden');
   }
 
-  if (data.type === 'BRANCH') {
+  if (data.type === 'GAMBLE') {
+    titleEl.textContent = '🎰 運命のハイリスク・ハイリターンギャンブル！';
+    if (data.isNegative) {
+      descEl.innerHTML = `
+        現在の所持金：<strong style="color:#e74c3c;">${data.formattedMoney}（マイナス状態）</strong><br>
+        1/2の確率で運命が分かれる！挑戦しますか？<br>
+        <span style="color:#27ae60; font-weight:bold;">⭕ 成功（50%）：所持金が $0（借金チャラ）になる！</span><br>
+        <span style="color:#e74c3c; font-weight:bold;">❌ 失敗（50%）：借金が倍増（-$${(Math.abs(data.currentMoney) * 2).toLocaleString()}）になる！</span>
+      `;
+    } else if (data.isZero) {
+      descEl.innerHTML = `
+        現在の所持金：<strong>$0</strong><br>
+        1/2の確率で運命が分かれる！挑戦しますか？<br>
+        <span style="color:#27ae60; font-weight:bold;">⭕ 成功（50%）：所持金が2倍（$0 → $0）</span><br>
+        <span style="color:#e74c3c; font-weight:bold;">❌ 失敗（50%）：所持金が $0 になる</span>
+      `;
+    } else {
+      descEl.innerHTML = `
+        現在の所持金：<strong style="color:#27ae60;">${data.formattedMoney}</strong><br>
+        1/2の確率で運命が分かれる！挑戦しますか？<br>
+        <span style="color:#27ae60; font-weight:bold;">⭕ 成功（50%）：所持金が2倍（$${(data.currentMoney * 2).toLocaleString()}）になる！</span><br>
+        <span style="color:#e74c3c; font-weight:bold;">❌ 失敗（50%）：所持金がすべて没収され $0 になる！</span>
+      `;
+    }
+
+    if (isMyEvent) {
+      choicesEl.innerHTML = `
+        <button class="btn danger" onclick="sendChoice('PLAY')">🎰 ギャンブルに挑戦する！</button>
+        <button class="btn secondary" onclick="sendChoice('DECLINE')">やめておく（見送る）</button>
+      `;
+    }
+  } else if (data.type === 'BRANCH') {
     titleEl.textContent = data.title;
     descEl.textContent = data.desc;
     if (isMyEvent) {
@@ -823,10 +870,14 @@ socket.on('gameFinished', ({ results, isAutoMatch }) => {
     const item = document.createElement('div');
     item.className = `rank-item rank-${actualRank}`;
     item.style.borderLeftColor = r.color;
+    const treasureText = r.treasureValue < 0
+      ? `-$${Math.abs(r.treasureValue).toLocaleString()}`
+      : `$${r.treasureValue.toLocaleString()}`;
+
     item.innerHTML = `
       <div>
         <strong>第${actualRank}位：${escapeHtml(r.name)}</strong>（${r.job}）<br>
-        <small>所持金 ${r.formattedCash} ＋ 物件 $${r.propertyValue.toLocaleString()} ＋ お宝 $${r.treasureValue.toLocaleString()} ＋ 家族 $${r.familyBonus.toLocaleString()}</small>
+        <small>所持金 ${r.formattedCash} ＋ 物件 $${r.propertyValue.toLocaleString()} ＋ お宝 ${treasureText} ＋ 家族 $${r.familyBonus.toLocaleString()}</small>
       </div>
       <div style="font-size:1.2rem; font-weight:bold; color:${r.totalAssets < 0 ? '#c0392b' : '#27ae60'};">
         ${r.formattedTotal}

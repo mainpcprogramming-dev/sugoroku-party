@@ -40,14 +40,29 @@ const PLAYER_COLORS = [
   '#2c3e50'  // ネイビー
 ];
 
+// 通常職業一覧
 const JOBS = [
   { name: 'フリーター', rankUpName: '店長', salary: 2000, rankUpSalary: 4500 },
   { name: '会社員', rankUpName: '部長', salary: 4000, rankUpSalary: 7500 },
   { name: 'エンジニア', rankUpName: 'CTO', salary: 6000, rankUpSalary: 11000 },
   { name: '医者', rankUpName: '院長', salary: 9000, rankUpSalary: 16000 },
   { name: '社長', rankUpName: '大富豪会長', salary: 12000, rankUpSalary: 22000 },
-  { name: 'YouTuber', rankUpName: 'トップクリエイター', salary: 5000, rankUpSalary: 10000 }
+  { name: 'YouTuber', rankUpName: 'トップクリエイター', salary: 5000, rankUpSalary: 10000 },
+  { name: '教師', rankUpName: '校長', salary: 4500, rankUpSalary: 8000 },
+  { name: '歌手', rankUpName: '国民的スター', salary: 5500, rankUpSalary: 12000 },
+  { name: '声優', rankUpName: '大御所声優', salary: 4000, rankUpSalary: 8500 },
+  { name: 'アイドル', rankUpName: 'トップアイドル', salary: 5000, rankUpSalary: 11000 },
+  { name: '探偵', rankUpName: '名探偵', salary: 5000, rankUpSalary: 9500 },
+  { name: '冒険家', rankUpName: '伝説のトレジャーハンター', salary: 4500, rankUpSalary: 10000 }
 ];
+
+// 低確率レア職業（ニート）
+const RARE_JOB_NEET = {
+  name: 'ニート',
+  rankUpName: 'アルバイト',
+  salary: 0,
+  rankUpSalary: 500
+};
 
 const PROPERTIES = [
   { id: 'p1', name: 'コンビニ経営権', price: 5000, sellValue: 8000 },
@@ -57,7 +72,8 @@ const PROPERTIES = [
   { id: 'p5', name: '宇宙旅行ツアー会社', price: 40000, sellValue: 75000 }
 ];
 
-const TREASURES = [
+// お宝（通常お宝 + 低確率の呪いアイテム）
+const NORMAL_TREASURES = [
   { name: '🏺 古びた壺', value: 3000 },
   { name: '🪙 古代の金貨', value: 6000 },
   { name: '💍 サファイアの指輪', value: 10000 },
@@ -66,6 +82,16 @@ const TREASURES = [
   { name: '💎 大粒ダイヤモンド', value: 24000 },
   { name: '🐉 秘宝・龍の玉', value: 30000 },
   { name: '👑 伝説の王冠', value: 38000 }
+];
+
+const CURSED_TREASURES = [
+  { name: '🧸 呪いのぬいぐるみ', value: -5000, isCursed: true },
+  { name: '🔮 呪いの真珠', value: -10000, isCursed: true }
+];
+
+const ALL_TREASURE_NAMES = [
+  ...NORMAL_TREASURES.map(t => t.name),
+  ...CURSED_TREASURES.map(t => t.name)
 ];
 
 const MINUS_ROULETTE_AMOUNTS = [3000, 5000, 8000, 10000, 15000, 20000, 25000];
@@ -104,9 +130,6 @@ function generateBoard(goalTile = 50) {
   const fixedMap = {};
 
   // マス数に応じたSTOPマス数・物件マス数の決定
-  // 45〜55: STOP 3個 / 物件 4個
-  // 56〜70: STOP 4個 / 物件 5個
-  // 71〜100: STOP 5個 / 物件 6個
   let stopCount = 3;
   let minPropertyCount = 4;
   if (safeGoal > 70) {
@@ -133,13 +156,11 @@ function generateBoard(goalTile = 50) {
   }
   shuffleArray(stopPool);
 
-  // STOPマスをマップ全体に均等間隔で配置
   for (let i = 0; i < stopCount; i++) {
     const pos = Math.round((safeGoal * (i + 1)) / (stopCount + 1));
     fixedMap[pos] = stopPool[i];
   }
 
-  // 空きマスリスト（1 〜 safeGoal - 1）
   const freeIndices = [];
   for (let i = 1; i < safeGoal; i++) {
     if (!fixedMap[i]) freeIndices.push(i);
@@ -156,16 +177,34 @@ function generateBoard(goalTile = 50) {
     desc: '最下位なら1位との差額を一気に逆転！'
   };
 
+  // 3. 刑務所マス（1ゲームに必ず1個：5以上出さないと脱出不可）
+  const jailCandidates = freeIndices.filter(idx => !fixedMap[idx] && idx >= 6 && idx <= safeGoal - 5);
+  const jailPos = jailCandidates[Math.floor(Math.random() * jailCandidates.length)];
+  fixedMap[jailPos] = {
+    type: 'JAIL',
+    label: '🔒刑務所',
+    desc: '5以上を出さないと出所できない！'
+  };
+
+  // 4. ギャンブルマス（1ゲームに必ず1個：1/2で所持金2倍 or 0 / 借金2倍）
+  const gambleCandidates = freeIndices.filter(idx => !fixedMap[idx] && idx >= 5 && idx <= safeGoal - 3);
+  const gamblePos = gambleCandidates[Math.floor(Math.random() * gambleCandidates.length)];
+  fixedMap[gamblePos] = {
+    type: 'GAMBLE',
+    label: '🎰ギャンブル',
+    desc: '1/2の確率で所持金2倍！挑戦するか選択可能'
+  };
+
   const remainingIndices = shuffleArray(freeIndices.filter(idx => !fixedMap[idx]));
 
-  // 3. お宝マス（2〜3個必ず配置）
+  // 5. お宝マス（2〜3個必ず配置）
   const treasureCount = Math.random() < 0.5 ? 2 : 3;
   for (let k = 0; k < treasureCount && remainingIndices.length > 0; k++) {
     const pos = remainingIndices.pop();
     fixedMap[pos] = { type: 'TREASURE', label: '💎お宝マス', desc: 'お宝ルーレットでお宝ゲット！' };
   }
 
-  // 4. 必須個数の保証リスト作成
+  // 6. 必須個数の保証リスト作成
   const guaranteedTypes = [
     'NORMAL',
     'PLUS',
@@ -244,8 +283,13 @@ function generateBoard(goalTile = 50) {
         const penalty = Math.floor(reward / 2);
         return { index, type: 'CLICK_GAME', label: '⚡連打挑戦', reward, penalty };
       }
-      case 'DICE_MINIGAME':
-        return { index, type: 'DICE_MINIGAME', label: '🎲全員勝負', entryFee: 3000 };
+      case 'DICE_MINIGAME': {
+        // マスの進行度に応じて参加費が $2,000 〜 MAX $6,000 に増加
+        const progress = index / safeGoal;
+        const rawFee = 2000 + Math.round((progress * 4000) / 500) * 500;
+        const entryFee = Math.min(6000, Math.max(2000, rawFee));
+        return { index, type: 'DICE_MINIGAME', label: '🎲全員勝負', entryFee };
+      }
       case 'MINUS_ROULETTE':
         return { index, type: 'MINUS_ROULETTE', label: '💀道連れルーレット' };
       case 'MYSTERY':
@@ -412,7 +456,8 @@ function nextTurn(roomId) {
 
   if (nextPlayer) {
     io.to(nextPlayer.id).emit('yourTurnNotice', {
-      isGoalBonus: nextPlayer.finished
+      isGoalBonus: nextPlayer.finished,
+      isInJail: nextPlayer.inJail
     });
   }
 
@@ -436,12 +481,32 @@ function executeSpin(roomId, playerId) {
   setTimeout(() => {
     if (!rooms[roomId]) return;
 
+    // ゴール済みボーナス
     if (player.finished) {
       const bonus = result * 500;
       player.money += bonus;
       sendSystemChat(roomId, `🌟 ゴール済みボーナス！${player.name}さんは「${result}」を出し、$${bonus.toLocaleString()}獲得しました！`);
       broadcastRoomState(roomId);
       setTimeout(() => nextTurn(roomId), 1200);
+      return;
+    }
+
+    // 🔒 刑務所収監中の判定（5以上が出れば釈放＆そのまま進む、4以下なら留置）
+    if (player.inJail) {
+      if (result >= 5) {
+        player.inJail = false;
+        sendSystemChat(roomId, `🔓 脱獄・釈放成功！${player.name}さんは「${result}」を出して刑務所から出所し、${result}マス進みます！`);
+        broadcastRoomState(roomId);
+        movePlayerStepByStep(roomId, player, result);
+      } else {
+        sendSystemChat(roomId, `🔒 釈放失敗…${player.name}さんは「${result}」（5未満）を出したため、まだ刑務所から出られません…。`);
+        broadcastRoomState(roomId);
+        showResultBannerAndProceed(roomId, {
+          title: '🔒 釈放失敗…',
+          subtitle: `出目「${result}」（5以上で出所）のため留置継続…`,
+          theme: 'lose'
+        }, () => nextTurn(roomId));
+      }
       return;
     }
 
@@ -497,11 +562,18 @@ function handleGoal(roomId, player) {
   setTimeout(() => nextTurn(roomId), 1500);
 }
 
+// 全員参加ダイスバトルの賞金分配計算（参加費プールを全額分配）
 function calculateDicePrizes(playerCount, entryFee) {
   const poolTotal = playerCount * entryFee;
-  if (playerCount === 2) return [4500, 1500];
-  if (playerCount === 3) return [6000, 2500, 500];
-  if (playerCount === 4) return [8000, 3000, 1000, 0];
+  if (playerCount === 2) {
+    return [Math.round(poolTotal * 0.75), Math.round(poolTotal * 0.25)];
+  }
+  if (playerCount === 3) {
+    const p1 = Math.floor((poolTotal * 0.65) / 100) * 100;
+    const p2 = Math.floor((poolTotal * 0.25) / 100) * 100;
+    const p3 = poolTotal - p1 - p2;
+    return [p1, p2, p3];
+  }
 
   const weights = [];
   for (let i = 0; i < playerCount - 1; i++) {
@@ -593,6 +665,31 @@ function handleTileLanding(roomId, player) {
       subtitle: `${player.name}さんは次のターン1回休みになります`,
       theme: 'lose'
     }, () => nextTurn(roomId));
+
+  } else if (tile.type === 'JAIL') {
+    player.inJail = true;
+    sendSystemChat(roomId, `🔒 刑務所収監！${player.name}さんは刑務所に入ってしまった…次のターンから5以上を出さないと出所できません！`);
+    broadcastRoomState(roomId);
+    showResultBannerAndProceed(roomId, {
+      title: '🔒 刑務所に収監！',
+      subtitle: `${player.name}さんは次のターン「5以上」を出さないと出られません！`,
+      theme: 'lose'
+    }, () => nextTurn(roomId));
+
+  } else if (tile.type === 'GAMBLE') {
+    const isNegative = player.money < 0;
+    const isZero = player.money === 0;
+    player.pendingEvent = { type: 'GAMBLE' };
+
+    io.to(roomId).emit('interactiveEvent', {
+      type: 'GAMBLE',
+      playerId: String(player.id),
+      playerName: player.name,
+      currentMoney: player.money,
+      formattedMoney: formatMoney(player.money),
+      isNegative,
+      isZero
+    });
 
   } else if (tile.type === 'PAYDAY') {
     const pay = player.job.currentSalary;
@@ -703,7 +800,7 @@ function handleTileLanding(roomId, player) {
     io.to(roomId).emit('startTreasureRoulette', {
       playerId: String(player.id),
       playerName: player.name,
-      treasures: TREASURES.map(t => t.name)
+      treasures: ALL_TREASURE_NAMES
     });
 
   } else if (tile.type === 'CLICK_GAME') {
@@ -824,6 +921,7 @@ async function finishGame(roomId) {
       propertyValue: propertyTotal,
       treasureCount: p.treasures.length,
       treasureValue: treasureTotal,
+      formattedTreasure: formatMoney(treasureTotal),
       familyBonus,
       totalAssets,
       formattedTotal: formatMoney(totalAssets)
@@ -940,7 +1038,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ゴールマス設定変更（45〜100マス）
   socket.on('changeGoalTile', (newGoal) => {
     const room = rooms[socket.roomId];
     if (!room || room.status !== 'LOBBY' || room.isAutoMatch) return;
@@ -999,6 +1096,7 @@ io.on('connection', (socket) => {
       p.married = false;
       p.childrenCount = 0;
       p.skipTurns = 0;
+      p.inJail = false;
       p.finished = false;
     });
 
@@ -1009,7 +1107,8 @@ io.on('connection', (socket) => {
       if (!rooms[roomId]) return;
       room.status = 'JOB_ROULETTE';
       broadcastRoomState(roomId);
-      io.to(roomId).emit('startJobRoulettePhase', JOBS.map(j => j.name));
+      const displayJobNames = [...JOBS.map(j => j.name), RARE_JOB_NEET.name];
+      io.to(roomId).emit('startJobRoulettePhase', displayJobNames);
     }, 3200);
   }
 
@@ -1019,7 +1118,10 @@ io.on('connection', (socket) => {
     const player = room.players.find(p => p.id === socket.id);
     if (!player || player.jobDecided) return;
 
-    const chosen = JOBS[Math.floor(Math.random() * JOBS.length)];
+    // 低確率（5%）でニート、それ以外は通常職業から抽選
+    const isNeet = Math.random() < 0.05;
+    const chosen = isNeet ? RARE_JOB_NEET : JOBS[Math.floor(Math.random() * JOBS.length)];
+
     player.job = {
       currentName: chosen.name,
       rankUpName: chosen.rankUpName,
@@ -1047,7 +1149,7 @@ io.on('connection', (socket) => {
         broadcastRoomState(room.id);
 
         if (firstPlayer) {
-          io.to(firstPlayer.id).emit('yourTurnNotice', { isGoalBonus: false });
+          io.to(firstPlayer.id).emit('yourTurnNotice', { isGoalBonus: false, isInJail: false });
         }
 
         startTurnTimer(room.id);
@@ -1140,7 +1242,7 @@ io.on('connection', (socket) => {
     }, 2000);
   });
 
-  // お宝ルーレット停止
+  // お宝ルーレット停止（低確率12%で呪いのお宝が出現）
   socket.on('stopTreasureRoulette', () => {
     const room = rooms[socket.roomId];
     if (!room || room.status !== 'PLAYING') return;
@@ -1148,14 +1250,23 @@ io.on('connection', (socket) => {
     if (!player || player.id !== socket.id || !player.pendingEvent || player.pendingEvent.type !== 'TREASURE') return;
 
     player.pendingEvent = null;
-    const treasure = TREASURES[Math.floor(Math.random() * TREASURES.length)];
+    const isCursed = Math.random() < 0.12;
+    const treasure = isCursed
+      ? CURSED_TREASURES[Math.floor(Math.random() * CURSED_TREASURES.length)]
+      : NORMAL_TREASURES[Math.floor(Math.random() * NORMAL_TREASURES.length)];
+
     player.treasures.push(treasure);
 
     io.to(room.id).emit('treasureDecided', {
       playerName: player.name,
       treasure
     });
-    sendSystemChat(room.id, `💎 ${player.name}さんがお宝「${treasure.name}」（売値 $${treasure.value.toLocaleString()}）を獲得しました！`);
+
+    if (treasure.value < 0) {
+      sendSystemChat(room.id, `😱 呪いのお宝！？${player.name}さんが「${treasure.name}」（決算時 ${formatMoney(treasure.value)}）を引いてしまいました…！`);
+    } else {
+      sendSystemChat(room.id, `💎 ${player.name}さんがお宝「${treasure.name}」（売値 $${treasure.value.toLocaleString()}）を獲得しました！`);
+    }
     broadcastRoomState(room.id);
 
     setTimeout(() => {
@@ -1259,7 +1370,62 @@ io.on('connection', (socket) => {
     const tile = room.board[player.position];
     io.to(room.id).emit('closeInteractiveEvent');
 
-    if (tile.type === 'BRANCH') {
+    if (tile.type === 'GAMBLE') {
+      if (choice === 'DECLINE') {
+        sendSystemChat(room.id, `${player.name}さんはギャンブルへの挑戦を見送りました。`);
+        player.pendingEvent = null;
+        return setTimeout(() => nextTurn(room.id), 800);
+      }
+
+      // 挑戦する（1/2で勝利 or 敗北）
+      const isWin = Math.random() < 0.5;
+      const beforeMoney = player.money;
+
+      if (beforeMoney < 0) {
+        // マイナス所持金の場合：勝利で$0（借金チャラ）、敗北で借金2倍
+        if (isWin) {
+          player.money = 0;
+          sendSystemChat(room.id, `🎰 ギャンブル大勝利！！${player.name}さんの借金（${formatMoney(beforeMoney)}）がチャラ（$0）になりました！！`);
+          broadcastRoomState(room.id);
+          showResultBannerAndProceed(room.id, {
+            title: '🎰 ギャンブル大勝利！！',
+            subtitle: `借金 ${formatMoney(beforeMoney)} がチャラ（$0）になりました！`,
+            theme: 'win'
+          }, () => nextTurn(room.id));
+        } else {
+          player.money = beforeMoney * 2;
+          sendSystemChat(room.id, `💀 ギャンブル大敗北…${player.name}さんの借金が倍増し、${formatMoney(player.money)}になってしまった…！`);
+          broadcastRoomState(room.id);
+          showResultBannerAndProceed(room.id, {
+            title: '💀 ギャンブル大敗北…',
+            subtitle: `借金が2倍になり ${formatMoney(player.money)} に…！`,
+            theme: 'lose'
+          }, () => nextTurn(room.id));
+        }
+      } else {
+        // プラス（または$0）所持金の場合：勝利で2倍、敗北で$0
+        if (isWin) {
+          player.money = beforeMoney * 2;
+          sendSystemChat(room.id, `🎰 ギャンブル大勝利！！${player.name}さんの所持金が2倍の ${formatMoney(player.money)} になりました！！`);
+          broadcastRoomState(room.id);
+          showResultBannerAndProceed(room.id, {
+            title: '🎰 ギャンブル大勝利！！',
+            subtitle: `所持金が2倍の ${formatMoney(player.money)} にアップ！`,
+            theme: 'win'
+          }, () => nextTurn(room.id));
+        } else {
+          player.money = 0;
+          sendSystemChat(room.id, `😱 ギャンブル敗北…${player.name}さんの所持金（${formatMoney(beforeMoney)}）がすべて没収され $0 になりました…。`);
+          broadcastRoomState(room.id);
+          showResultBannerAndProceed(room.id, {
+            title: '😱 ギャンブル敗北…',
+            subtitle: `所持金がすべて没収され $0 になりました…`,
+            theme: 'lose'
+          }, () => nextTurn(room.id));
+        }
+      }
+
+    } else if (tile.type === 'BRANCH') {
       if (choice === 'SAFE') {
         player.money += 5000;
         sendSystemChat(room.id, `${player.name}さんは堅実ルートを選び、確実に$5,000獲得しました！`);
@@ -1426,6 +1592,7 @@ io.on('connection', (socket) => {
       married: false,
       childrenCount: 0,
       skipTurns: 0,
+      inJail: false,
       finished: false
     };
   }
@@ -1473,7 +1640,10 @@ io.on('connection', (socket) => {
         broadcastRoomState(roomId);
         const nextPlayer = room.players[room.turnIndex];
         if (nextPlayer) {
-          io.to(nextPlayer.id).emit('yourTurnNotice', { isGoalBonus: nextPlayer.finished });
+          io.to(nextPlayer.id).emit('yourTurnNotice', {
+            isGoalBonus: nextPlayer.finished,
+            isInJail: nextPlayer.inJail
+          });
         }
         startTurnTimer(roomId);
       } else {
