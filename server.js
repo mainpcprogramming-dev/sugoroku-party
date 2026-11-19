@@ -562,7 +562,6 @@ function handleGoal(roomId, player) {
   setTimeout(() => nextTurn(roomId), 1500);
 }
 
-// 全員参加ダイスバトルの賞金分配計算（参加費プールを全額分配）
 function calculateDicePrizes(playerCount, entryFee) {
   const poolTotal = playerCount * entryFee;
   if (playerCount === 2) {
@@ -1377,12 +1376,10 @@ io.on('connection', (socket) => {
         return setTimeout(() => nextTurn(room.id), 800);
       }
 
-      // 挑戦する（1/2で勝利 or 敗北）
       const isWin = Math.random() < 0.5;
       const beforeMoney = player.money;
 
       if (beforeMoney < 0) {
-        // マイナス所持金の場合：勝利で$0（借金チャラ）、敗北で借金2倍
         if (isWin) {
           player.money = 0;
           sendSystemChat(room.id, `🎰 ギャンブル大勝利！！${player.name}さんの借金（${formatMoney(beforeMoney)}）がチャラ（$0）になりました！！`);
@@ -1403,7 +1400,6 @@ io.on('connection', (socket) => {
           }, () => nextTurn(room.id));
         }
       } else {
-        // プラス（または$0）所持金の場合：勝利で2倍、敗北で$0
         if (isWin) {
           player.money = beforeMoney * 2;
           sendSystemChat(room.id, `🎰 ギャンブル大勝利！！${player.name}さんの所持金が2倍の ${formatMoney(player.money)} になりました！！`);
