@@ -272,7 +272,7 @@ function build200Quizzes(level) {
   return list.slice(0, 200);
 }
 
-const QUIZ_BANK = {
+QUIZ_BANK = {
   EASY: build200Quizzes('EASY'),
   NORMAL: build200Quizzes('NORMAL'),
   HARD: build200Quizzes('HARD')
