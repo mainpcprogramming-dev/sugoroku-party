@@ -545,7 +545,7 @@ select {
   flex: 1;
 }
 
-/* スマホ時は「1.操作パネル → 2.チャット → 3.スゴロク盤面」の順番 */
+
 .turn-panel-wrapper {
   order: 1;
 }

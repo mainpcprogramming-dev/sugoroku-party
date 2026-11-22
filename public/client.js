@@ -395,6 +395,7 @@ socket.on('startMysteryRoulette', ({ actorId, actorName, items }) => {
 
   const isMyEvent = String(actorId) === String(myPlayerId || socket.id);
   badge.textContent = `${actorName}さんの？？？ルーレット`;
+  // ★抽選中はすべて同じ標準色（クリーム＋黄色枠）で固定
   slotEl.className = 'job-slot';
   slotEl.style.color = '';
   modal.classList.remove('hidden');
@@ -412,11 +413,28 @@ socket.on('startMysteryRoulette', ({ actorId, actorName, items }) => {
   let idx = 0;
   clearInterval(mysteryRouletteInterval);
   mysteryRouletteInterval = setInterval(() => {
-    const val = items[idx % items.length];
-    slotEl.textContent = val;
-    slotEl.className = val.startsWith('+') ? 'job-slot plus-slot' : 'job-slot minus-slot';
+    slotEl.textContent = items[idx % items.length];
     idx++;
   }, 60);
+});
+
+document.getElementById('btn-stop-mystery').onclick = () => {
+  document.getElementById('btn-stop-mystery').disabled = true;
+  socket.emit('stopMysteryRoulette');
+};
+
+socket.on('mysteryRouletteDecided', ({ label, isWin }) => {
+  clearInterval(mysteryRouletteInterval);
+  const slotEl = document.getElementById('mystery-slot');
+  // ★抽選決定後にプラスは緑（plus-slot）、マイナスは赤（minus-slot）を適用
+  slotEl.className = isWin ? 'job-slot plus-slot' : 'job-slot minus-slot';
+  slotEl.style.color = '';
+  slotEl.textContent = `${label} ${isWin ? '獲得！！' : '没収…'}`;
+});
+
+socket.on('closeMysteryRoulette', () => {
+  clearInterval(mysteryRouletteInterval);
+  document.getElementById('mystery-modal').classList.add('hidden');
 });
 
 document.getElementById('btn-stop-mystery').onclick = () => {
@@ -449,7 +467,8 @@ socket.on('startTreasureRoulette', ({ playerId, playerName, treasures }) => {
 
   const isMyEvent = String(playerId) === String(myPlayerId || socket.id);
   badge.textContent = `${playerName}さんのお宝ルーレット`;
-  slotEl.className = 'job-slot treasure-slot';
+  // ★抽選中はすべて同じ標準色（クリーム＋黄色枠）で固定
+  slotEl.className = 'job-slot';
   modal.classList.remove('hidden');
 
   if (isMyEvent) {
@@ -465,11 +484,29 @@ socket.on('startTreasureRoulette', ({ playerId, playerName, treasures }) => {
   let idx = 0;
   clearInterval(treasureRouletteInterval);
   treasureRouletteInterval = setInterval(() => {
-    const name = treasures[idx % treasures.length];
-    slotEl.textContent = name;
-    slotEl.className = name.includes('呪') ? 'job-slot curse-slot' : 'job-slot treasure-slot';
+    slotEl.textContent = treasures[idx % treasures.length];
     idx++;
   }, 65);
+});
+
+document.getElementById('btn-stop-treasure').onclick = () => {
+  document.getElementById('btn-stop-treasure').disabled = true;
+  socket.emit('stopTreasureRoulette');
+};
+
+socket.on('treasureDecided', ({ treasure }) => {
+  clearInterval(treasureRouletteInterval);
+  const slotEl = document.getElementById('treasure-slot');
+  const isCursed = treasure.value < 0 || treasure.name.includes('呪');
+  // ★抽選決定後に通常お宝は紫（treasure-slot）、呪いは赤（curse-slot）を適用
+  slotEl.className = isCursed ? 'job-slot curse-slot' : 'job-slot treasure-slot';
+  const valStr = isCursed ? `-$${Math.abs(treasure.value).toLocaleString()}` : `+$${treasure.value.toLocaleString()}`;
+  slotEl.innerHTML = `${treasure.name}<br><small style="font-size:1rem;">（決算時 ${valStr}）</small>`;
+});
+
+socket.on('closeTreasureRoulette', () => {
+  clearInterval(treasureRouletteInterval);
+  document.getElementById('treasure-modal').classList.add('hidden');
 });
 
 document.getElementById('btn-stop-treasure').onclick = () => {
