@@ -6,6 +6,7 @@ let jobRouletteInterval = null;
 let treasureRouletteInterval = null;
 let minusRouletteInterval = null;
 let mysteryRouletteInterval = null;
+let sniperRouletteInterval = null;
 let diceMgRollInterval = null;
 let clickChallengeInterval = null;
 let turnToastTimeout = null;
@@ -191,6 +192,96 @@ socket.on('allJobsDecided', () => {
 });
 
 // ========================
+// 🎯 スナイパーマスイベント
+// ========================
+socket.on('startSniperEvent', ({ actorId, actorName, targets }) => {
+  const isMyEvent = String(actorId) === String(myPlayerId || socket.id);
+  const modal = document.getElementById('sniper-modal');
+  const badge = document.getElementById('sniper-actor-badge');
+  const titleEl = document.getElementById('sniper-title');
+  const descEl = document.getElementById('sniper-desc');
+  const listEl = document.getElementById('sniper-targets-list');
+  const rouletteArea = document.getElementById('sniper-roulette-area');
+  const waitMsg = document.getElementById('sniper-wait-msg');
+
+  badge.textContent = `${actorName}さんのスナイパーイベント`;
+  titleEl.textContent = '🎯 ターゲットを指名せよ！';
+  descEl.textContent = '奪い取るライバルを1人選んでください（出た目 × $2,500 奪取）';
+  listEl.innerHTML = '';
+  listEl.classList.remove('hidden');
+  rouletteArea.classList.add('hidden');
+  modal.classList.remove('hidden');
+
+  if (isMyEvent) {
+    waitMsg.classList.add('hidden');
+    targets.forEach(t => {
+      const btn = document.createElement('button');
+      btn.className = 'btn danger';
+      btn.textContent = `🎯 ${t.name} を狙う（所持金: ${t.displayMoney}）`;
+      btn.onclick = () => {
+        listEl.querySelectorAll('button').forEach(b => (b.disabled = true));
+        socket.emit('selectSniperTarget', t.id);
+      };
+      listEl.appendChild(btn);
+    });
+  } else {
+    waitMsg.textContent = `${actorName}さんが狙う相手を選んでいます...`;
+    waitMsg.classList.remove('hidden');
+  }
+});
+
+socket.on('sniperTargetSelected', ({ actorId, actorName, targetName }) => {
+  const isMyEvent = String(actorId) === String(myPlayerId || socket.id);
+  const titleEl = document.getElementById('sniper-title');
+  const descEl = document.getElementById('sniper-desc');
+  const listEl = document.getElementById('sniper-targets-list');
+  const rouletteArea = document.getElementById('sniper-roulette-area');
+  const slotEl = document.getElementById('sniper-roulette-slot');
+  const stopBtn = document.getElementById('btn-stop-sniper');
+  const waitMsg = document.getElementById('sniper-wait-msg');
+
+  listEl.classList.add('hidden');
+  rouletteArea.classList.remove('hidden');
+  titleEl.textContent = `🎯 ターゲット：${targetName} さん！`;
+  descEl.textContent = 'ルーレットを止めて奪い取る金額を決めよう！';
+  slotEl.className = 'job-slot minus-slot';
+
+  if (isMyEvent) {
+    stopBtn.classList.remove('hidden');
+    stopBtn.disabled = false;
+    waitMsg.classList.add('hidden');
+  } else {
+    stopBtn.classList.add('hidden');
+    waitMsg.textContent = `${actorName}さんが狙撃ルーレットを止めています...`;
+    waitMsg.classList.remove('hidden');
+  }
+
+  let num = 1;
+  clearInterval(sniperRouletteInterval);
+  sniperRouletteInterval = setInterval(() => {
+    slotEl.textContent = `出目 ${num} → $${(num * 2500).toLocaleString()}`;
+    num = (num % 6) + 1;
+  }, 55);
+});
+
+document.getElementById('btn-stop-sniper').onclick = () => {
+  document.getElementById('btn-stop-sniper').disabled = true;
+  socket.emit('stopSniperRoulette');
+};
+
+socket.on('sniperRouletteDecided', ({ roll, stealAmount, targetName }) => {
+  clearInterval(sniperRouletteInterval);
+  const slotEl = document.getElementById('sniper-roulette-slot');
+  slotEl.className = 'job-slot plus-slot';
+  slotEl.innerHTML = `🎯 出目「${roll}」命中！！<br><small style="font-size:1.05rem;">${escapeHtml(targetName)}さんから $${stealAmount.toLocaleString()} 奪取！</small>`;
+});
+
+socket.on('closeSniperEvent', () => {
+  clearInterval(sniperRouletteInterval);
+  document.getElementById('sniper-modal').classList.add('hidden');
+});
+
+// ========================
 // 💀 マイナスルーレット（道連れルーレット）
 // ========================
 socket.on('startMinusRoulette', ({ actorId, actorName, amounts }) => {
@@ -305,6 +396,7 @@ socket.on('startMysteryRoulette', ({ actorId, actorName, items }) => {
   const isMyEvent = String(actorId) === String(myPlayerId || socket.id);
   badge.textContent = `${actorName}さんの？？？ルーレット`;
   slotEl.className = 'job-slot';
+  slotEl.style.color = '';
   modal.classList.remove('hidden');
 
   if (isMyEvent) {
@@ -322,7 +414,7 @@ socket.on('startMysteryRoulette', ({ actorId, actorName, items }) => {
   mysteryRouletteInterval = setInterval(() => {
     const val = items[idx % items.length];
     slotEl.textContent = val;
-    slotEl.style.color = val.startsWith('+') ? '#1e8449' : '#c0392b';
+    slotEl.className = val.startsWith('+') ? 'job-slot plus-slot' : 'job-slot minus-slot';
     idx++;
   }, 60);
 });
@@ -335,7 +427,7 @@ document.getElementById('btn-stop-mystery').onclick = () => {
 socket.on('mysteryRouletteDecided', ({ label, isWin }) => {
   clearInterval(mysteryRouletteInterval);
   const slotEl = document.getElementById('mystery-slot');
-  slotEl.className = isWin ? 'job-slot treasure-slot' : 'job-slot minus-slot';
+  slotEl.className = isWin ? 'job-slot plus-slot' : 'job-slot minus-slot';
   slotEl.style.color = '';
   slotEl.textContent = `${label} ${isWin ? '獲得！！' : '没収…'}`;
 });
@@ -373,7 +465,9 @@ socket.on('startTreasureRoulette', ({ playerId, playerName, treasures }) => {
   let idx = 0;
   clearInterval(treasureRouletteInterval);
   treasureRouletteInterval = setInterval(() => {
-    slotEl.textContent = treasures[idx % treasures.length];
+    const name = treasures[idx % treasures.length];
+    slotEl.textContent = name;
+    slotEl.className = name.includes('呪') ? 'job-slot curse-slot' : 'job-slot treasure-slot';
     idx++;
   }, 65);
 });
@@ -386,8 +480,8 @@ document.getElementById('btn-stop-treasure').onclick = () => {
 socket.on('treasureDecided', ({ treasure }) => {
   clearInterval(treasureRouletteInterval);
   const slotEl = document.getElementById('treasure-slot');
-  const isCursed = treasure.value < 0;
-  slotEl.className = isCursed ? 'job-slot minus-slot' : 'job-slot treasure-slot';
+  const isCursed = treasure.value < 0 || treasure.name.includes('呪');
+  slotEl.className = isCursed ? 'job-slot curse-slot' : 'job-slot treasure-slot';
   const valStr = isCursed ? `-$${Math.abs(treasure.value).toLocaleString()}` : `+$${treasure.value.toLocaleString()}`;
   slotEl.innerHTML = `${treasure.name}<br><small style="font-size:1rem;">（決算時 ${valStr}）</small>`;
 });
@@ -398,7 +492,7 @@ socket.on('closeTreasureRoulette', () => {
 });
 
 // ========================
-// ⚡ クリック連打チャレンジ（リアルタイム回数共有）
+// ⚡ クリック連打チャレンジ
 // ========================
 socket.on('startClickChallenge', ({ playerId, playerName, targetClicks, reward, penalty }) => {
   const modal = document.getElementById('click-modal');
@@ -585,10 +679,12 @@ socket.on('closeDiceMinigame', () => {
 // ========================
 // ターン通知・結果バナー
 // ========================
-socket.on('yourTurnNotice', ({ isGoalBonus, isInJail }) => {
+socket.on('yourTurnNotice', ({ isGoalBonus, isInJail, bombTurns }) => {
   const toast = document.getElementById('your-turn-toast');
   if (isGoalBonus) {
     toast.textContent = '🌟 あなたの番です！（ゴール済みボーナスルーレット）';
+  } else if (bombTurns > 0) {
+    toast.textContent = `💣 爆弾所持中（残り${bombTurns}ターン）！誰かに移せ！`;
   } else if (isInJail) {
     toast.textContent = '🔒 収監中！ルーレットで「5以上」を出して出所しよう！';
   } else {
@@ -629,6 +725,7 @@ function renderGameBoard(state) {
 
     let statusBadge = `P${idx + 1}`;
     if (p.finished) statusBadge = 'GOAL済';
+    else if (p.bombTurns > 0) statusBadge = `💣残${p.bombTurns}`;
     else if (p.inJail) statusBadge = '🔒収監中';
     else if (p.skipTurns > 0) statusBadge = '🤒休み中';
 
@@ -652,6 +749,8 @@ function renderGameBoard(state) {
 
   if (activePlayer.finished) {
     turnLabel.textContent = `${activePlayer.name}さん（ゴールボーナス）`;
+  } else if (activePlayer.bombTurns > 0) {
+    turnLabel.textContent = `${activePlayer.name}さん（💣爆弾残り${activePlayer.bombTurns}ターン）`;
   } else if (activePlayer.inJail) {
     turnLabel.textContent = `${activePlayer.name}さん（🔒刑務所・5以上で出所）`;
   } else {
@@ -677,7 +776,7 @@ function renderGameBoard(state) {
     tileEl.className = `tile ${tile.type}`;
     const playersHere = state.players.filter(p => p.position === tile.index);
     const tokensHtml = playersHere.map(p =>
-      `<span class="token" style="background:${p.color}">${escapeHtml(p.name)}</span>`
+      `<span class="token" style="background:${p.color}">${p.bombTurns > 0 ? '💣' : ''}${escapeHtml(p.name)}</span>`
     ).join('');
 
     tileEl.innerHTML = `
@@ -910,8 +1009,10 @@ function hideAllEventModals() {
   clearInterval(treasureRouletteInterval);
   clearInterval(minusRouletteInterval);
   clearInterval(mysteryRouletteInterval);
+  clearInterval(sniperRouletteInterval);
   clearInterval(diceMgRollInterval);
   clearInterval(clickChallengeInterval);
+  document.getElementById('sniper-modal').classList.add('hidden');
   document.getElementById('treasure-modal').classList.add('hidden');
   document.getElementById('minus-roulette-modal').classList.add('hidden');
   document.getElementById('mystery-modal').classList.add('hidden');

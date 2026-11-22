@@ -116,6 +116,21 @@
     </div>
   </div>
 
+  <!-- 🎯 スナイパーマスモーダル -->
+  <div id="sniper-modal" class="overlay hidden">
+    <div class="card modal-card">
+      <div id="sniper-actor-badge" class="actor-badge">〇〇さんのスナイパーイベント</div>
+      <h2 id="sniper-title">🎯 ターゲットを指名せよ！</h2>
+      <p id="sniper-desc" class="event-desc-text">奪い取るライバルを1人選んでください（出た目 × $2,500 奪取）</p>
+      <div id="sniper-targets-list" class="event-choices"></div>
+      <div id="sniper-roulette-area" class="hidden">
+        <div id="sniper-roulette-slot" class="job-slot minus-slot">$2,500</div>
+        <button id="btn-stop-sniper" class="btn danger big-btn">ストップして狙撃する！</button>
+      </div>
+      <p id="sniper-wait-msg" class="status-text hidden">対象プレイヤーが操作中です...</p>
+    </div>
+  </div>
+
   <!-- 💀 マイナスルーレット（道連れルーレット）モーダル -->
   <div id="minus-roulette-modal" class="overlay hidden">
     <div class="card modal-card">
@@ -134,7 +149,7 @@
       <div id="mystery-actor-badge" class="actor-badge">〇〇さんの？？？ルーレット</div>
       <h2>❓ 運命の？？？ルーレット！</h2>
       <p>天国か地獄か！？プラスかマイナスか一発勝負！</p>
-      <div id="mystery-slot" class="job-slot">+$15,000</div>
+      <div id="mystery-slot" class="job-slot plus-slot">+$15,000</div>
       <button id="btn-stop-mystery" class="btn accent big-btn">ストップして運命を決める！</button>
       <p id="mystery-wait-msg" class="status-text hidden">対象プレイヤーがルーレットを止めています...</p>
     </div>

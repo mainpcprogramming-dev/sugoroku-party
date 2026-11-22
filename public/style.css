@@ -133,7 +133,6 @@ select {
   margin-top: 8px;
 }
 
-/* ボタンカラー */
 .primary,
 .btn-green {
   background: #2ecc71;
@@ -308,7 +307,7 @@ select {
   color: #333;
 }
 
-/* 職業ルーレット */
+/* ルーレットスロット色（？？？のプラス＝緑、通常お宝＝紫、呪いのお宝・マイナス＝赤） */
 .job-slot {
   font-size: 1.7rem;
   font-weight: 800;
@@ -319,16 +318,23 @@ select {
   padding: 18px 14px;
   margin: 14px 0;
 }
+.plus-slot {
+  color: #1e8449;
+  background: #e8f8f5;
+  border-color: #2ecc71;
+}
 .treasure-slot {
   color: #8e44ad;
   background: #f5eef8;
   border-color: #9b59b6;
 }
-.minus-slot {
+.minus-slot,
+.curse-slot {
   color: #c0392b;
   background: #fadbd8;
   border-color: #e74c3c;
 }
+
 .job-status-list {
   margin-top: 12px;
   text-align: left;
@@ -482,6 +488,7 @@ select {
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 .player-card {
   background: #fff;
@@ -538,7 +545,7 @@ select {
   flex: 1;
 }
 
-/* ★スマホ時は「1.操作パネル → 2.チャット → 3.スゴロク盤面」の順番に配置 */
+/* スマホ時は「1.操作パネル → 2.チャット → 3.スゴロク盤面」の順番 */
 .turn-panel-wrapper {
   order: 1;
 }
@@ -644,6 +651,7 @@ select {
 .chat-msg {
   margin-bottom: 4px;
   line-height: 1.35;
+  word-break: break-word;
 }
 .chat-msg.system {
   color: #2980b9;
@@ -652,6 +660,7 @@ select {
 .chat-form {
   display: flex;
   gap: 6px;
+  flex-shrink: 0;
 }
 .chat-form input {
   padding: 7px 10px;
@@ -756,13 +765,30 @@ select {
   border-color: #c0392b;
 }
 .tile.MYSTERY {
-  background: #f8f9f9;
-  border-color: #95a5a6;
+  background: #e8eaf6;
+  border-color: #3f51b5;
+  border-width: 2px;
 }
 .tile.COMEBACK {
   background: #fadbd8;
   border-color: #e74c3c;
   border-width: 2px;
+}
+.tile.SNIPER {
+  background: #fbeee6;
+  border-color: #d35400;
+  border-width: 2px;
+}
+.tile.TIME_BOMB {
+  background: #2c3e50;
+  border-color: #e74c3c;
+  border-width: 2px;
+}
+.tile.TIME_BOMB .tile-num {
+  color: #bdc3c7;
+}
+.tile.TIME_BOMB .tile-label {
+  color: #ff7675;
 }
 
 .tokens {
@@ -823,9 +849,15 @@ select {
 }
 
 /* =========================================
-   PC画面（768px以上：レイアウト維持＆文字をくっきり太めに調整）
+   PC画面（768px以上：1画面内にピッタリ収まる2カラム配置）
    ========================================= */
 @media (min-width: 768px) {
+  #game-screen {
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
+  }
+
   .status-bar {
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 10px;
@@ -835,48 +867,54 @@ select {
   .game-main-layout {
     display: grid;
     grid-template-columns: 1fr 290px;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 12px;
-    height: calc(100vh - 105px);
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
 
-  /* 左側：白い盤面エリア */
   .board-container {
     grid-column: 1;
     grid-row: 1 / 3;
     order: unset;
     max-height: none;
     height: 100%;
+    min-height: 0;
+    overflow-y: auto;
     padding: 14px;
   }
 
-  /* 右上：ターン操作パネル */
   .turn-panel-wrapper {
     grid-column: 2;
     grid-row: 1;
     order: unset;
   }
 
-  /* 右下：チャットパネル */
   .chat-panel-wrapper {
     grid-column: 2;
     grid-row: 2;
     order: unset;
     display: flex;
     flex-direction: column;
+    height: 100%;
     min-height: 0;
+    overflow: hidden;
   }
 
   .chat-panel {
     flex: 1;
+    height: 100%;
     min-height: 0;
+    overflow: hidden;
     padding: 12px 14px;
   }
 
   .chat-messages {
     flex: 1;
-    height: auto;
-    min-height: 200px;
+    height: 0;
+    min-height: 0;
+    overflow-y: auto;
     font-size: 0.86rem;
     font-weight: 600;
   }

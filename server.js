@@ -129,7 +129,6 @@ function generateBoard(goalTile = 50) {
   const safeGoal = Math.max(45, Math.min(100, Number(goalTile) || 50));
   const fixedMap = {};
 
-  // マス数に応じたSTOPマス数・物件マス数の決定
   let stopCount = 3;
   let minPropertyCount = 4;
   if (safeGoal > 70) {
@@ -140,7 +139,7 @@ function generateBoard(goalTile = 50) {
     minPropertyCount = 5;
   }
 
-  // 1. 強制ストップマス（最低1個は給料日、残りは結婚・分岐・給料日から構成）
+  // 1. 強制ストップマス
   const stopPool = [
     { type: 'PAYDAY', label: '給料日(STOP)', desc: '必ずストップ！お給料をもらう', stop: true }
   ];
@@ -177,7 +176,7 @@ function generateBoard(goalTile = 50) {
     desc: '最下位なら1位との差額を一気に逆転！'
   };
 
-  // 3. 刑務所マス（1ゲームに必ず1個：5以上出さないと脱出不可）
+  // 3. 刑務所マス（1マップに必ず1個）
   const jailCandidates = freeIndices.filter(idx => !fixedMap[idx] && idx >= 6 && idx <= safeGoal - 5);
   const jailPos = jailCandidates[Math.floor(Math.random() * jailCandidates.length)];
   fixedMap[jailPos] = {
@@ -186,7 +185,7 @@ function generateBoard(goalTile = 50) {
     desc: '5以上を出さないと出所できない！'
   };
 
-  // 4. ギャンブルマス（1ゲームに必ず1個：1/2で所持金2倍 or 0 / 借金2倍）
+  // 4. ギャンブルマス（1マップに必ず1個）
   const gambleCandidates = freeIndices.filter(idx => !fixedMap[idx] && idx >= 5 && idx <= safeGoal - 3);
   const gamblePos = gambleCandidates[Math.floor(Math.random() * gambleCandidates.length)];
   fixedMap[gamblePos] = {
@@ -195,16 +194,34 @@ function generateBoard(goalTile = 50) {
     desc: '1/2の確率で所持金2倍！挑戦するか選択可能'
   };
 
+  // 5. スナイパーマス（1マップに必ず1個のみ配置）
+  const sniperCandidates = freeIndices.filter(idx => !fixedMap[idx] && idx >= 4 && idx <= safeGoal - 3);
+  const sniperPos = sniperCandidates[Math.floor(Math.random() * sniperCandidates.length)];
+  fixedMap[sniperPos] = {
+    type: 'SNIPER',
+    label: '🎯スナイパー',
+    desc: 'ライバル1人を指名し、出た目×$2,500を直接奪い取る！'
+  };
+
+  // 6. 時限爆弾マス（1マップに必ず1個のみ配置：ゴール3ターン前までに爆発できるよう終盤手前までに配置）
+  const bombCandidates = freeIndices.filter(idx => !fixedMap[idx] && idx >= 3 && idx <= Math.max(10, safeGoal - 8));
+  const bombPos = bombCandidates[Math.floor(Math.random() * bombCandidates.length)];
+  fixedMap[bombPos] = {
+    type: 'TIME_BOMB',
+    label: '💣時限爆弾',
+    desc: '爆弾が付着！3ターン以内に誰かとすれ違うか同マスに止まらないと-$20,000！'
+  };
+
   const remainingIndices = shuffleArray(freeIndices.filter(idx => !fixedMap[idx]));
 
-  // 5. お宝マス（2〜3個必ず配置）
+  // 7. お宝マス（2〜3個必ず配置）
   const treasureCount = Math.random() < 0.5 ? 2 : 3;
   for (let k = 0; k < treasureCount && remainingIndices.length > 0; k++) {
     const pos = remainingIndices.pop();
     fixedMap[pos] = { type: 'TREASURE', label: '💎お宝マス', desc: 'お宝ルーレットでお宝ゲット！' };
   }
 
-  // 6. 必須個数の保証リスト作成
+  // 8. 必須個数の保証リスト作成（SNIPER と TIME_BOMB は1個限定のためここには含めない）
   const guaranteedTypes = [
     'NORMAL',
     'PLUS',
@@ -219,12 +236,10 @@ function generateBoard(goalTile = 50) {
     'RANKUP'
   ];
 
-  // 物件購入マスを最低必要個数（4〜6個）追加
   for (let p = 0; p < minPropertyCount; p++) {
     guaranteedTypes.push('PROPERTY');
   }
 
-  // 体調不良マスを最低3個追加
   for (let s = 0; s < 3; s++) {
     guaranteedTypes.push('SICK');
   }
@@ -284,7 +299,6 @@ function generateBoard(goalTile = 50) {
         return { index, type: 'CLICK_GAME', label: '⚡連打挑戦', reward, penalty };
       }
       case 'DICE_MINIGAME': {
-        // マスの進行度に応じて参加費が $2,000 〜 MAX $6,000 に増加
         const progress = index / safeGoal;
         const rawFee = 2000 + Math.round((progress * 4000) / 500) * 500;
         const entryFee = Math.min(6000, Math.max(2000, rawFee));
@@ -429,7 +443,41 @@ function startTurnTimer(roomId) {
   }, 1000);
 }
 
-function nextTurn(roomId) {
+// 💣 爆弾のなすりつけ判定（移動中・停止時に同じマスの他プレイヤーへ移す）
+function checkBombPassOnTile(roomId, mover) {
+  const room = rooms[roomId];
+  if (!room) return false;
+
+  // 1. 移動中の人が爆弾を持っていて、同じマスに未ゴールの他プレイヤーがいれば渡す
+  if (mover.bombTurns > 0) {
+    const victim = room.players.find(
+      p => p.id !== mover.id && !p.finished && p.position === mover.position && p.position > 0
+    );
+    if (victim) {
+      victim.bombTurns = mover.bombTurns;
+      mover.bombTurns = 0;
+      sendSystemChat(roomId, `💣 爆弾なすりつけ！${mover.name}さんが同じマスの${victim.name}さんに時限爆弾（残り${victim.bombTurns}ターン）を押し付けました！`);
+      broadcastRoomState(roomId);
+      return true;
+    }
+  }
+
+  // 2. 逆に、爆弾を持っている他プレイヤーのいるマスに移動者が重なった場合も移る
+  const holder = room.players.find(
+    p => p.id !== mover.id && !p.finished && p.bombTurns > 0 && p.position === mover.position && p.position > 0
+  );
+  if (holder && !mover.finished) {
+    mover.bombTurns = holder.bombTurns;
+    holder.bombTurns = 0;
+    sendSystemChat(roomId, `💣 爆弾接触！${mover.name}さんが${holder.name}さんと同じマスに重なり、時限爆弾（残り${mover.bombTurns}ターン）が移ってしまいました！`);
+    broadcastRoomState(roomId);
+    return true;
+  }
+
+  return false;
+}
+
+function proceedToNextPlayer(roomId) {
   const room = rooms[roomId];
   if (!room || room.status !== 'PLAYING') return;
 
@@ -457,11 +505,43 @@ function nextTurn(roomId) {
   if (nextPlayer) {
     io.to(nextPlayer.id).emit('yourTurnNotice', {
       isGoalBonus: nextPlayer.finished,
-      isInJail: nextPlayer.inJail
+      isInJail: nextPlayer.inJail,
+      bombTurns: nextPlayer.bombTurns || 0
     });
   }
 
   startTurnTimer(roomId);
+}
+
+function nextTurn(roomId) {
+  const room = rooms[roomId];
+  if (!room || room.status !== 'PLAYING') return;
+
+  // 💣 現在のプレイヤーのターン終了時に爆弾カウントダウン＆爆発判定
+  const currentPlayer = room.players[room.turnIndex];
+  if (currentPlayer && !currentPlayer.finished && currentPlayer.bombTurns > 0 && !currentPlayer.bombJustAcquired) {
+    currentPlayer.bombTurns--;
+    if (currentPlayer.bombTurns <= 0) {
+      currentPlayer.bombTurns = 0;
+      currentPlayer.money -= 20000;
+      sendSystemChat(roomId, `💥 ドカーン！！時限爆弾が爆発し、${currentPlayer.name}さんは -$20,000 の大ダメージを受けました！！`);
+      broadcastRoomState(roomId);
+      showResultBannerAndProceed(roomId, {
+        title: '💥 時限爆弾 大爆発！！',
+        subtitle: `${currentPlayer.name}さんが -$20,000 失いました…！`,
+        theme: 'lose'
+      }, () => proceedToNextPlayer(roomId));
+      return;
+    } else {
+      sendSystemChat(roomId, `💣 チッチッチッ…${currentPlayer.name}さんの時限爆弾、爆発まで残り ${currentPlayer.bombTurns} ターン！`);
+      broadcastRoomState(roomId);
+    }
+  }
+  if (currentPlayer) {
+    currentPlayer.bombJustAcquired = false;
+  }
+
+  proceedToNextPlayer(roomId);
 }
 
 function executeSpin(roomId, playerId) {
@@ -491,7 +571,7 @@ function executeSpin(roomId, playerId) {
       return;
     }
 
-    // 🔒 刑務所収監中の判定（5以上が出れば釈放＆そのまま進む、4以下なら留置）
+    // 🔒 刑務所収監中の判定
     if (player.inJail) {
       if (result >= 5) {
         player.inJail = false;
@@ -525,6 +605,8 @@ function movePlayerStepByStep(roomId, player, stepsRemaining) {
   }
 
   player.position++;
+  // 💣 1マス進むごとに誰かを追い越した・重なったかチェックして爆弾を移す
+  checkBombPassOnTile(roomId, player);
   broadcastRoomState(roomId);
 
   const currentTile = room.board[player.position];
@@ -548,6 +630,10 @@ function movePlayerStepByStep(roomId, player, stepsRemaining) {
 function handleGoal(roomId, player) {
   const room = rooms[roomId];
   player.finished = true;
+  if (player.bombTurns > 0) {
+    player.bombTurns = 0;
+    sendSystemChat(roomId, `✨ ${player.name}さんはゴールに飛び込み、時限爆弾の解除に成功しました！`);
+  }
   room.goalOrder.push(player.id);
   const rank = room.goalOrder.length;
 
@@ -672,6 +758,42 @@ function handleTileLanding(roomId, player) {
     showResultBannerAndProceed(roomId, {
       title: '🔒 刑務所に収監！',
       subtitle: `${player.name}さんは次のターン「5以上」を出さないと出られません！`,
+      theme: 'lose'
+    }, () => nextTurn(roomId));
+
+  } else if (tile.type === 'SNIPER') {
+    const targets = room.players.filter(p => p.id !== player.id && !p.finished);
+    if (targets.length === 0) {
+      player.money += 3000;
+      sendSystemChat(roomId, `🎯 スナイパーマス！狙える相手がいなかったため、${player.name}さんは訓練手当+$3,000を獲得しました。`);
+      broadcastRoomState(roomId);
+      setTimeout(() => nextTurn(roomId), 1200);
+      return;
+    }
+
+    player.pendingEvent = { type: 'SNIPER', step: 'SELECT_TARGET', targetId: null };
+    io.to(roomId).emit('startSniperEvent', {
+      actorId: String(player.id),
+      actorName: player.name,
+      targets: targets.map(t => ({
+        id: String(t.id),
+        name: t.name,
+        color: t.color,
+        displayMoney: formatMoney(t.money)
+      }))
+    });
+
+  } else if (tile.type === 'TIME_BOMB') {
+    // すでに誰かが爆弾を持っていたら解除し、踏んだ人に新たな爆弾が付着
+    room.players.forEach(p => { p.bombTurns = 0; p.bombJustAcquired = false; });
+    player.bombTurns = 3;
+    player.bombJustAcquired = true;
+
+    sendSystemChat(roomId, `💣 時限爆弾作動！！${player.name}さんに時限爆弾がくっついた！3ターン以内に誰かとすれ違うか同マスに止まらないと -$20,000 大爆発！！`);
+    broadcastRoomState(roomId);
+    showResultBannerAndProceed(roomId, {
+      title: '💣 時限爆弾が付着！！',
+      subtitle: '3ターン以内に誰かに移さないと -$20,000 爆発！',
       theme: 'lose'
     }, () => nextTurn(roomId));
 
@@ -986,7 +1108,7 @@ io.on('connection', (socket) => {
       const matched = autoMatchQueue.splice(0, 4);
       const roomId = generateRoomCode();
       const room = createRoomState(roomId, true);
-      room.goalTile = 50; // オンライン対戦は50マス固定
+      room.goalTile = 50;
       rooms[roomId] = room;
 
       matched.forEach((m, idx) => {
@@ -1096,6 +1218,8 @@ io.on('connection', (socket) => {
       p.childrenCount = 0;
       p.skipTurns = 0;
       p.inJail = false;
+      p.bombTurns = 0;
+      p.bombJustAcquired = false;
       p.finished = false;
     });
 
@@ -1117,7 +1241,6 @@ io.on('connection', (socket) => {
     const player = room.players.find(p => p.id === socket.id);
     if (!player || player.jobDecided) return;
 
-    // 低確率（5%）でニート、それ以外は通常職業から抽選
     const isNeet = Math.random() < 0.05;
     const chosen = isNeet ? RARE_JOB_NEET : JOBS[Math.floor(Math.random() * JOBS.length)];
 
@@ -1148,7 +1271,11 @@ io.on('connection', (socket) => {
         broadcastRoomState(room.id);
 
         if (firstPlayer) {
-          io.to(firstPlayer.id).emit('yourTurnNotice', { isGoalBonus: false, isInJail: false });
+          io.to(firstPlayer.id).emit('yourTurnNotice', {
+            isGoalBonus: false,
+            isInJail: false,
+            bombTurns: 0
+          });
         }
 
         startTurnTimer(room.id);
@@ -1160,6 +1287,62 @@ io.on('connection', (socket) => {
     if (socket.roomId) {
       executeSpin(socket.roomId, socket.id);
     }
+  });
+
+  // 🎯 スナイパーマス：ターゲット指名
+  socket.on('selectSniperTarget', (targetId) => {
+    const room = rooms[socket.roomId];
+    if (!room || room.status !== 'PLAYING') return;
+    const player = room.players[room.turnIndex];
+    if (!player || player.id !== socket.id || !player.pendingEvent || player.pendingEvent.type !== 'SNIPER') return;
+    if (player.pendingEvent.step !== 'SELECT_TARGET') return;
+
+    const target = room.players.find(p => String(p.id) === String(targetId) && p.id !== player.id);
+    if (!target) return;
+
+    player.pendingEvent.step = 'ROLL';
+    player.pendingEvent.targetId = target.id;
+
+    sendSystemChat(room.id, `🎯 ${player.name}さんが「${target.name}」をロックオン！ルーレットの出目×$2,500を奪います！`);
+    io.to(room.id).emit('sniperTargetSelected', {
+      actorId: String(player.id),
+      actorName: player.name,
+      targetName: target.name
+    });
+  });
+
+  // 🎯 スナイパーマス：ルーレット停止
+  socket.on('stopSniperRoulette', () => {
+    const room = rooms[socket.roomId];
+    if (!room || room.status !== 'PLAYING') return;
+    const player = room.players[room.turnIndex];
+    if (!player || player.id !== socket.id || !player.pendingEvent || player.pendingEvent.type !== 'SNIPER') return;
+    if (player.pendingEvent.step !== 'ROLL') return;
+
+    const target = room.players.find(p => p.id === player.pendingEvent.targetId);
+    player.pendingEvent = null;
+
+    const roll = Math.floor(Math.random() * 6) + 1;
+    const stealAmount = roll * 2500;
+
+    if (target) {
+      target.money -= stealAmount;
+      player.money += stealAmount;
+      sendSystemChat(room.id, `🎯 スナイパー命中！！出目「${roll}」！${player.name}さんが${target.name}さんから $${stealAmount.toLocaleString()} 奪い取りました！！`);
+    }
+    broadcastRoomState(room.id);
+
+    io.to(room.id).emit('sniperRouletteDecided', {
+      roll,
+      stealAmount,
+      actorName: player.name,
+      targetName: target ? target.name : '相手'
+    });
+
+    setTimeout(() => {
+      io.to(room.id).emit('closeSniperEvent');
+      nextTurn(room.id);
+    }, 2400);
   });
 
   // 💀 マイナスルーレット
@@ -1241,7 +1424,7 @@ io.on('connection', (socket) => {
     }, 2000);
   });
 
-  // お宝ルーレット停止（低確率12%で呪いのお宝が出現）
+  // お宝ルーレット停止
   socket.on('stopTreasureRoulette', () => {
     const room = rooms[socket.roomId];
     if (!room || room.status !== 'PLAYING') return;
@@ -1589,6 +1772,8 @@ io.on('connection', (socket) => {
       childrenCount: 0,
       skipTurns: 0,
       inJail: false,
+      bombTurns: 0,
+      bombJustAcquired: false,
       finished: false
     };
   }
@@ -1638,7 +1823,8 @@ io.on('connection', (socket) => {
         if (nextPlayer) {
           io.to(nextPlayer.id).emit('yourTurnNotice', {
             isGoalBonus: nextPlayer.finished,
-            isInJail: nextPlayer.inJail
+            isInJail: nextPlayer.inJail,
+            bombTurns: nextPlayer.bombTurns || 0
           });
         }
         startTurnTimer(roomId);
